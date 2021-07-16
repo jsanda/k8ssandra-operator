@@ -29,6 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/kubernetes/pkg/util/hash"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -53,8 +54,9 @@ type K8ssandraClusterReconciler struct {
 //+kubebuilder:rbac:groups=k8ssandra.io,namespace="k8ssandra",resources=k8ssandraclusters,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=k8ssandra.io,namespace="k8ssandra",resources=k8ssandraclusters/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=k8ssandra.io,namespace="k8ssandra",resources=k8ssandraclusters/finalizers,verbs=update
-// +kubebuilder:rbac:groups=cassandra.datastax.com,namespace="k8ssandra",resources=cassandradatacenters,verbs=get;list;watch;create;update;delete;patch
-// +kubebuilder:rbac:groups=core,namespace="k8ssandra",resources=secrets,verbs=get;list;watch
+//+kubebuilder:rbac:groups=cassandra.datastax.com,namespace="k8ssandra",resources=cassandradatacenters,verbs=get;list;watch;create;update;delete;patch
+//+kubebuilder:rbac:groups=k8ssandra.io,namespace="k8ssandra",resources=stargates,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=core,namespace="k8ssandra",resources=secrets,verbs=get;list;watch
 
 func (r *K8ssandraClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
@@ -73,19 +75,19 @@ func (r *K8ssandraClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	if k8ssandra.Spec.Cassandra != nil {
 		var seeds []string
 
-		for i, template := range k8ssandra.Spec.Cassandra.Datacenters {
-			desired := newDatacenter(req.Namespace, k8ssandra.Spec.Cassandra.Cluster, template, seeds)
-			dcKey := types.NamespacedName{Namespace: desired.Namespace, Name: desired.Name}
+		for i, dcTemplate := range k8ssandra.Spec.Cassandra.Datacenters {
+			desiredDc := newDatacenter(req.Namespace, k8ssandra.Spec.Cassandra.Cluster, dcTemplate, seeds)
+			dcKey := types.NamespacedName{Namespace: desiredDc.Namespace, Name: desiredDc.Name}
 
-			//if err := controllerutil.SetControllerReference(k8ssandra, desired, r.Scheme); err != nil {
+			//if err := controllerutil.SetControllerReference(k8ssandra, desiredDc, r.Scheme); err != nil {
 			//	logger.Error(err, "failed to set owner reference", "CassandraDatacenter", key)
 			//	return ctrl.Result{RequeueAfter: 10 * time.Second}, err
 			//}
 
-			desiredHash := deepHashString(desired)
-			desired.Annotations[resourceHashAnnotation] = desiredHash
+			desiredDcHash := deepHashString(desiredDc)
+			desiredDc.Annotations[resourceHashAnnotation] = desiredDcHash
 
-			remoteClient, err := r.ClientCache.GetClient(req.NamespacedName, k8ssandra.Spec.K8sContextsSecret, template.K8sContext)
+			remoteClient, err := r.ClientCache.GetClient(req.NamespacedName, k8ssandra.Spec.K8sContextsSecret, dcTemplate.K8sContext)
 			if err != nil {
 				logger.Error(err, "Failed to get remote client for datacenter", "CassandraDatacenter", dcKey)
 				return ctrl.Result{}, err
@@ -96,30 +98,30 @@ func (r *K8ssandraClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 				return ctrl.Result{}, fmt.Errorf("remoteClient cannot be nil")
 			}
 
-			actual := &cassdcapi.CassandraDatacenter{}
+			actualDc := &cassdcapi.CassandraDatacenter{}
 
-			if err = remoteClient.Get(ctx, dcKey, actual); err == nil {
-				if actualHash, found := actual.Annotations[resourceHashAnnotation]; !(found && actualHash == desiredHash) {
+			if err = remoteClient.Get(ctx, dcKey, actualDc); err == nil {
+				if actualHash, found := actualDc.Annotations[resourceHashAnnotation]; !(found && actualHash == desiredDcHash) {
 					logger.Info("Updating datacenter", "CassandraDatacenter", dcKey)
-					actual = actual.DeepCopy()
-					desired.DeepCopyInto(actual)
+					actualDc = actualDc.DeepCopy()
+					desiredDc.DeepCopyInto(actualDc)
 
-					if err = remoteClient.Update(ctx, actual); err != nil {
+					if err = remoteClient.Update(ctx, actualDc); err != nil {
 						logger.Error(err, "Failed to update datacenter", "CassandraDatacenter", dcKey)
 						return ctrl.Result{}, err
 					}
 				}
 
-				if !cassandra.DatacenterReady(actual) {
+				if !cassandra.DatacenterReady(actualDc) {
 					logger.Info("Waiting for datacenter to become ready", "CassandraDatacenter", dcKey)
 					return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 				}
 
 				logger.Info("The datacenter is ready", "CassandraDatacenter", dcKey)
 
-				endpoints, err := r.resolveSeedEndpoints(ctx, actual, remoteClient)
+				endpoints, err := r.resolveSeedEndpoints(ctx, actualDc, remoteClient)
 				if err != nil {
-					logger.Error(err,"Failed to resolve seed endpoints", "CassandraDatacenter", dcKey)
+					logger.Error(err, "Failed to resolve seed endpoints", "CassandraDatacenter", dcKey)
 					return ctrl.Result{}, err
 				}
 
@@ -131,7 +133,7 @@ func (r *K8ssandraClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 				}
 			} else {
 				if errors.IsNotFound(err) {
-					if err = remoteClient.Create(ctx, &desired); err != nil {
+					if err = remoteClient.Create(ctx, &desiredDc); err != nil {
 						logger.Error(err, "Failed to create datacenter", "CassandraDatacenter", dcKey)
 						return ctrl.Result{}, err
 					}
@@ -139,6 +141,59 @@ func (r *K8ssandraClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 				} else {
 					logger.Error(err, "Failed to get datacenter", "CassandraDatacenter", dcKey)
 					return ctrl.Result{}, err
+				}
+			}
+
+			if dcTemplate.Stargate != nil {
+
+				stargateKey := types.NamespacedName{
+					Namespace: actualDc.Namespace,
+					Name:      k8ssandra.Name + "-" + actualDc.Name + "-stargate",
+				}
+
+				desiredStargate := &api.Stargate{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace:   stargateKey.Namespace,
+						Name:        stargateKey.Name,
+						Annotations: map[string]string{},
+					},
+					Spec: api.StargateSpec{
+						StargateTemplate: *dcTemplate.Stargate,
+						DatacenterName:   actualDc.Name,
+					},
+				}
+				desiredStargateHash := deepHashString(desiredStargate)
+				desiredStargate.Annotations[resourceHashAnnotation] = desiredStargateHash
+
+				actualStargate := &api.Stargate{}
+
+				if err := remoteClient.Get(ctx, stargateKey, actualStargate); err != nil {
+					if errors.IsNotFound(err) {
+						logger.Info("Creating Stargate resource", "Stargate", stargateKey)
+						if err := controllerutil.SetControllerReference(k8ssandra, desiredStargate, r.Scheme); err != nil {
+							logger.Error(err, "Failed to set owner reference on Stargate resource", "Stargate", stargateKey)
+							return ctrl.Result{RequeueAfter: 10 * time.Second}, err
+						} else if err := remoteClient.Create(ctx, desiredStargate); err != nil {
+							logger.Error(err, "Failed to create Stargate resource", "Stargate", stargateKey)
+							return ctrl.Result{}, err
+						} else {
+							return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+						}
+					} else {
+						logger.Error(err, "Failed to get Stargate resource", "Stargate", stargateKey)
+						return ctrl.Result{}, err
+					}
+				} else if actualStargateHash, found := actualStargate.Annotations[resourceHashAnnotation]; !found || actualStargateHash != desiredStargateHash {
+					logger.Info("Updating Stargate resource", "Stargate", stargateKey)
+					actualStargate = actualStargate.DeepCopy()
+					desiredStargate.DeepCopyInto(actualStargate)
+					if err := controllerutil.SetControllerReference(k8ssandra, actualStargate, r.Scheme); err != nil {
+						logger.Error(err, "Failed to set owner reference on Stargate resource", "Stargate", stargateKey)
+						return ctrl.Result{RequeueAfter: 10 * time.Second}, err
+					} else if err = remoteClient.Update(ctx, actualStargate); err != nil {
+						logger.Error(err, "Failed to update Stargate resource", "Stargate", stargateKey)
+						return ctrl.Result{}, err
+					}
 				}
 			}
 		}
@@ -155,19 +210,19 @@ func newDatacenter(k8ssandraNamespace, cluster string, template api.CassandraDat
 
 	return cassdcapi.CassandraDatacenter{
 		ObjectMeta: metav1.ObjectMeta{
-			Namespace: namespace,
+			Namespace:   namespace,
 			Name:        template.Meta.Name,
 			Annotations: map[string]string{},
 		},
 		Spec: cassdcapi.CassandraDatacenterSpec{
-			ClusterName:   cluster,
-			Size:          template.Size,
-			ServerType:    "cassandra",
-			ServerVersion: template.ServerVersion,
-			Resources:     template.Resources,
-			Config:        template.Config,
-			Racks:         template.Racks,
-			StorageConfig: template.StorageConfig,
+			ClusterName:     cluster,
+			Size:            template.Size,
+			ServerType:      "cassandra",
+			ServerVersion:   template.ServerVersion,
+			Resources:       template.Resources,
+			Config:          template.Config,
+			Racks:           template.Racks,
+			StorageConfig:   template.StorageConfig,
 			AdditionalSeeds: additionalSeeds,
 			Networking: &cassdcapi.NetworkingConfig{
 				HostNetwork: true,
@@ -274,6 +329,7 @@ func getDatacenterKey(dcTemplate api.CassandraDatacenterTemplateSpec, k8ssandraK
 func (r *K8ssandraClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&api.K8ssandraCluster{}).
+		Owns(&cassdcapi.CassandraDatacenter{}).
+		Owns(&api.Stargate{}).
 		Complete(r)
 }
-

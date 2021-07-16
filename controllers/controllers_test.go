@@ -38,6 +38,8 @@ func TestControllers(t *testing.T) {
 
 	t.Run("Create Single DC cluster", controllerTest(ctx, createSingleDcCluster))
 	t.Run("Create multi-DC cluster in one namespace", controllerTest(ctx, createMultiDcCluster))
+
+	t.Run("Test Stargate", testStargate)
 }
 
 func beforeSuite(t *testing.T) {
@@ -69,6 +71,12 @@ func beforeSuite(t *testing.T) {
 		Scheme: scheme.Scheme,
 	}).SetupWithManager(k8sManager)
 	require.NoError(err, "Failed to set up K8ssandraClusterReconciler")
+
+	err = (&StargateReconciler{
+		Client: k8sManager.GetClient(),
+		Scheme: scheme.Scheme,
+	}).SetupWithManager(k8sManager)
+	require.NoError(err, "Failed to set up StargateReconciler")
 
 	go func() {
 		err = k8sManager.Start(ctrl.SetupSignalHandler())
