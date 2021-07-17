@@ -74,10 +74,19 @@ func (r *K8ssandraClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	if k8ssandra.Spec.Cassandra != nil {
 		var seeds []string
+		dcNames := make([]string, 0, len(k8ssandra.Spec.Cassandra.Datacenters))
 
-		for i, dcTemplate := range k8ssandra.Spec.Cassandra.Datacenters {
-			desiredDc := newDatacenter(req.Namespace, k8ssandra.Spec.Cassandra.Cluster, dcTemplate, seeds)
-			dcKey := types.NamespacedName{Namespace: desiredDc.Namespace, Name: desiredDc.Name}
+		for _, dc := range k8ssandra.Spec.Cassandra.Datacenters {
+			dcNames = append(dcNames, dc.Meta.Name)
+		}
+
+		for i, template := range k8ssandra.Spec.Cassandra.Datacenters {
+			desired, err := newDatacenter(req.Namespace, k8ssandra.Spec.Cassandra.Cluster, dcNames, template, seeds)
+			if err != nil {
+				logger.Error(err, "Failed to CassandraDatacenter")
+				return ctrl.Result{}, err
+			}
+			dcKey := types.NamespacedName{Namespace: desired.Namespace, Name: desired.Name}
 
 			//if err := controllerutil.SetControllerReference(k8ssandra, desiredDc, r.Scheme); err != nil {
 			//	logger.Error(err, "failed to set owner reference", "CassandraDatacenter", key)
@@ -202,13 +211,18 @@ func (r *K8ssandraClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	return ctrl.Result{}, nil
 }
 
-func newDatacenter(k8ssandraNamespace, cluster string, template api.CassandraDatacenterTemplateSpec, additionalSeeds []string) cassdcapi.CassandraDatacenter {
+func newDatacenter(k8ssandraNamespace, cluster string, dcNames []string, template api.CassandraDatacenterTemplateSpec, additionalSeeds []string) (*cassdcapi.CassandraDatacenter, error) {
 	namespace := template.Meta.Namespace
 	if len(namespace) == 0 {
 		namespace = k8ssandraNamespace
 	}
 
-	return cassdcapi.CassandraDatacenter{
+	config, err := cassandra.GetMergedConfig(template.Config, dcNames)
+	if err != nil {
+		return nil, err
+	}
+
+	return &cassdcapi.CassandraDatacenter{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace:   namespace,
 			Name:        template.Meta.Name,
@@ -228,7 +242,7 @@ func newDatacenter(k8ssandraNamespace, cluster string, template api.CassandraDat
 				HostNetwork: true,
 			},
 		},
-	}
+	}, nil
 }
 
 func deepHashString(obj interface{}) string {
