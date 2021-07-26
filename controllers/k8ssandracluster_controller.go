@@ -29,6 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/kubernetes/pkg/util/hash"
+	"math"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"time"
 
@@ -81,13 +82,13 @@ func (r *K8ssandraClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 			dcNames = append(dcNames, dc.Meta.Name)
 		}
 
-		for i, template := range k8ssandra.Spec.Cassandra.Datacenters {
-			desired, err := newDatacenter(req.Namespace, k8ssandra.Spec.Cassandra.Cluster, dcNames, template, seeds, systemDistributedRF)
+		for i, dcTemplate := range k8ssandra.Spec.Cassandra.Datacenters {
+			desiredDc, err := newDatacenter(req.Namespace, k8ssandra.Spec.Cassandra.Cluster, dcNames, dcTemplate, seeds, systemDistributedRF)
 			if err != nil {
 				logger.Error(err, "Failed to CassandraDatacenter")
 				return ctrl.Result{}, err
 			}
-			dcKey := types.NamespacedName{Namespace: desired.Namespace, Name: desired.Name}
+			dcKey := types.NamespacedName{Namespace: desiredDc.Namespace, Name: desiredDc.Name}
 
 			//if err := controllerutil.SetControllerReference(k8ssandra, desiredDc, r.Scheme); err != nil {
 			//	logger.Error(err, "failed to set owner reference", "CassandraDatacenter", key)
@@ -148,7 +149,7 @@ func (r *K8ssandraClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 				}
 			} else {
 				if errors.IsNotFound(err) {
-					if err = remoteClient.Create(ctx, &desiredDc); err != nil {
+					if err = remoteClient.Create(ctx, desiredDc); err != nil {
 						logger.Error(err, "Failed to create datacenter", "CassandraDatacenter", dcKey)
 						return ctrl.Result{}, err
 					}
