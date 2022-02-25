@@ -18,9 +18,9 @@ import (
 )
 
 const (
-	DefaultMedusaImageRepository = "k8ssandra"
+	DefaultMedusaImageRepository = "adejanovski"
 	DefaultMedusaImageName       = "medusa"
-	DefaultMedusaVersion         = "0.11.3"
+	DefaultMedusaVersion         = "remote-restore"
 )
 
 var (
@@ -35,8 +35,10 @@ var (
 func CreateMedusaIni(kc *k8ss.K8ssandraCluster) string {
 	medusaIniTemplate := `
     [cassandra]
+    use_sudo = false
 
     [storage]
+    use_sudo_for_restore = false
     storage_provider = {{ .Spec.Medusa.StorageProperties.StorageProvider }}
     {{- if eq .Spec.Medusa.StorageProperties.StorageProvider "local" }}
     bucket_name = {{ .Name }}
@@ -81,6 +83,7 @@ func CreateMedusaIni(kc *k8ss.K8ssandraCluster) string {
 	{{- if .Spec.Medusa.StorageProperties.MultiPartUploadThreshold }}
     multi_part_upload_threshold = {{ .Spec.Medusa.StorageProperties.MultiPartUploadThreshold }}
 	{{- end }}
+    resolve_ip_addresses = False
 
     [grpc]
     enabled = 1
@@ -164,6 +167,9 @@ func UpdateMedusaMainContainer(dcConfig *cassandra.DatacenterConfig, medusaSpec 
 	setImage(medusaSpec.ContainerImage, medusaContainer)
 	medusaContainer.SecurityContext = medusaSpec.SecurityContext
 	medusaContainer.Env = medusaEnvVars(medusaSpec, dcConfig, logger, "GRPC")
+	medusaContainer.Ports = []corev1.ContainerPort{
+		{ContainerPort: 50051, Name: "grpc"},
+	}
 
 	medusaContainer.VolumeMounts = medusaVolumeMounts(medusaSpec, dcConfig, logger)
 
@@ -245,6 +251,13 @@ func medusaEnvVars(medusaSpec *api.MedusaClusterTemplate, dcConfig *cassandra.Da
 						Name: CassandraUserSecretName(medusaSpec, dcConfig.Cluster),
 					},
 					Key: "password",
+				},
+			},
+		},
+		{Name: "POD_IP",
+			ValueFrom: &corev1.EnvVarSource{
+				FieldRef: &corev1.ObjectFieldSelector{
+					FieldPath: "status.podIP",
 				},
 			},
 		},

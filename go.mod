@@ -15,6 +15,8 @@ require (
 	github.com/gruntwork-io/terratest v0.37.7
 	github.com/k8ssandra/cass-operator v1.10.1-0.20220317071437-056e2e793db1
 	github.com/k8ssandra/reaper-client-go v0.3.1-0.20220114183114-6923e077c4f5
+	github.com/onsi/ginkgo v1.16.5
+	github.com/onsi/gomega v1.15.0
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.52.1
 	github.com/rs/zerolog v1.20.0

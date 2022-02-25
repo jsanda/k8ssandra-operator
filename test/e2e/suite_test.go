@@ -200,6 +200,20 @@ func TestOperator(t *testing.T) {
 		skipK8ssandraClusterCleanup:  false,
 		doCassandraDatacenterCleanup: false,
 	}))
+	t.Run("CreateSingleMedusaJob", e2eTest(ctx, &e2eTestOpts{
+		testFunc:                     createSingleMedusaJob,
+		fixture:                      "single-dc-medusa",
+		deployTraefik:                false,
+		skipK8ssandraClusterCleanup:  false,
+		doCassandraDatacenterCleanup: false,
+	}))
+	t.Run("CreateMultiMedusaJob", e2eTest(ctx, &e2eTestOpts{
+		testFunc:                     createMultiMedusaJob,
+		fixture:                      "multi-dc-medusa",
+		deployTraefik:                false,
+		skipK8ssandraClusterCleanup:  false,
+		doCassandraDatacenterCleanup: false,
+	}))
 	t.Run("MultiDcAuthOnOff", e2eTest(ctx, &e2eTestOpts{
 		testFunc: multiDcAuthOnOff,
 		fixture:  framework.NewTestFixture("multi-dc-auth", controlPlane),

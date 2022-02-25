@@ -439,3 +439,7 @@ install-kuttl:
 mocks:
 	mockery --dir=./pkg/cassandra --output=./pkg/mocks --name=ManagementApiFacade
 	mockery --dir=./pkg/reaper --output=./pkg/mocks --name=Manager  --filename=reaper_manager.go --structname=ReaperManager
+
+PHONY: protobuf-code-gen
+protobuf-code-gen:
+	@protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative pkg/medusa/medusa.proto
