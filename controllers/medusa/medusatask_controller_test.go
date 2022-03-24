@@ -25,7 +25,7 @@ const (
 func testMedusaTasks(t *testing.T, ctx context.Context, f *framework.Framework, namespace string) {
 	require := require.New(t)
 
-	k8sCtx0 := "cluster-0"
+	k8sCtx0 := f.K8sContext(0)
 
 	kc := &k8ss.K8ssandraCluster{
 		ObjectMeta: metav1.ObjectMeta{
