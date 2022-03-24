@@ -101,18 +101,18 @@ func createMultiMedusaJob(t *testing.T, ctx context.Context, namespace string, f
 
 	// Create a backup in each DC and verify their completion
 	for _, dcKey := range []framework.ClusterKey{dc1Key, dc2Key} {
-		createBackup(t, ctx, namespace, f, dcKey)
+		createBackupJob(t, ctx, namespace, f, dcKey)
 	}
 	for _, dcKey := range []framework.ClusterKey{dc1Key, dc2Key} {
-		verifyBackupFinished(t, ctx, f, dcKey, backupKey)
+		verifyBackupJobFinished(t, ctx, f, dcKey, backupKey)
 	}
 
 	// Restore the backup in each DC and verify it finished correctly
 	for _, dcKey := range []framework.ClusterKey{dc1Key, dc2Key} {
-		restoreBackup(t, ctx, namespace, f, dcKey)
+		restoreBackupJob(t, ctx, namespace, f, dcKey)
 	}
 	for _, dcKey := range []framework.ClusterKey{dc1Key, dc2Key} {
-		verifyRestoreFinished(t, ctx, f, dcKey, backupKey)
+		verifyRestoreJobFinished(t, ctx, f, dcKey, backupKey)
 	}
 }
 
