@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	cassdcapi "github.com/k8ssandra/cass-operator/apis/cassandra/v1beta1"
 	k8ssandractrl "github.com/k8ssandra/k8ssandra-operator/controllers/k8ssandra"
 	"github.com/k8ssandra/k8ssandra-operator/pkg/clientcache"
 	"github.com/k8ssandra/k8ssandra-operator/pkg/config"
@@ -22,12 +23,11 @@ const (
 )
 
 var (
-	defaultStorageClass  = "default"
+	defaultStorageClass = "default"
 	seedsResolver       = &fakeSeedsResolver{}
 	managementApi       = &testutils.FakeManagementApiFactory{}
-	medusaClientFactory *fakeMedusaClientFactory
+	medusaClientFactory = NewMedusaClientFactory()
 )
-
 
 func TestCassandraBackupRestore(t *testing.T) {
 	ctx := testutils.TestSetup(t)
@@ -92,8 +92,17 @@ func setupBackupTestEnv(t *testing.T, ctx context.Context) *testutils.MultiClust
 				Scheme:           scheme.Scheme,
 				ClientFactory:    medusaClientFactory,
 			}).SetupWithManager(dataPlaneMgr)
-			return err
+			if err != nil {
+				return err
+			}
+			go func() {
+				err := dataPlaneMgr.Start(ctx)
+				if err != nil {
+					t.Errorf("failed to start manager: %s", err)
+				}
+			}()
 		}
+		return nil
 	})
 	if err != nil {
 		t.Fatalf("failed to start test environment: %s", err)
@@ -121,7 +130,7 @@ func setupRestoreTestEnv(t *testing.T, ctx context.Context) *testutils.MultiClus
 	medusaClientFactory = NewMedusaClientFactory()
 
 	err := testEnv.Start(ctx, t, func(controlPlaneMgr manager.Manager, clientCache *clientcache.ClientCache, clusters []cluster.Cluster) error {
-		err := (&ctrl.K8ssandraClusterReconciler{
+		err := (&k8ssandractrl.K8ssandraClusterReconciler{
 			ReconcilerConfig: reconcilerConfig,
 			Client:           controlPlaneMgr.GetClient(),
 			Scheme:           scheme.Scheme,
@@ -151,12 +160,23 @@ func setupRestoreTestEnv(t *testing.T, ctx context.Context) *testutils.MultiClus
 				Client:           dataPlaneMgr.GetClient(),
 				Scheme:           scheme.Scheme,
 			}).SetupWithManager(dataPlaneMgr)
-			return err
+			if err != nil {
+				return err
+			}
+			go func() {
+				err := dataPlaneMgr.Start(ctx)
+				if err != nil {
+					t.Errorf("failed to start manager: %s", err)
+				}
+			}()
 		}
+		return nil
 	})
 	if err != nil {
 		t.Fatalf("failed to start test environment: %s", err)
 	}
+	return testEnv
+}
 
 func setupMedusaBackupTestEnv(t *testing.T, ctx context.Context) *testutils.MultiClusterTestEnv {
 	testEnv := &testutils.MultiClusterTestEnv{
@@ -178,7 +198,7 @@ func setupMedusaBackupTestEnv(t *testing.T, ctx context.Context) *testutils.Mult
 	medusaClientFactory = NewMedusaClientFactory()
 
 	err := testEnv.Start(ctx, t, func(controlPlaneMgr manager.Manager, clientCache *clientcache.ClientCache, clusters []cluster.Cluster) error {
-		err := (&ctrl.K8ssandraClusterReconciler{
+		err := (&k8ssandractrl.K8ssandraClusterReconciler{
 			ReconcilerConfig: reconcilerConfig,
 			Client:           controlPlaneMgr.GetClient(),
 			Scheme:           scheme.Scheme,
@@ -200,8 +220,17 @@ func setupMedusaBackupTestEnv(t *testing.T, ctx context.Context) *testutils.Mult
 				Scheme:           scheme.Scheme,
 				ClientFactory:    medusaClientFactory,
 			}).SetupWithManager(dataPlaneMgr)
-			return err
+			if err != nil {
+				return err
+			}
+			go func() {
+				err := dataPlaneMgr.Start(ctx)
+				if err != nil {
+					t.Errorf("failed to start manager: %s", err)
+				}
+			}()
 		}
+		return nil
 	})
 	if err != nil {
 		t.Fatalf("failed to start test environment: %s", err)
@@ -230,7 +259,7 @@ func setupMedusaRestoreJobTestEnv(t *testing.T, ctx context.Context) *testutils.
 	medusaClientFactory = NewMedusaClientFactory()
 
 	err := testEnv.Start(ctx, t, func(controlPlaneMgr manager.Manager, clientCache *clientcache.ClientCache, clusters []cluster.Cluster) error {
-		err := (&ctrl.K8ssandraClusterReconciler{
+		err := (&k8ssandractrl.K8ssandraClusterReconciler{
 			ReconcilerConfig: reconcilerConfig,
 			Client:           controlPlaneMgr.GetClient(),
 			Scheme:           scheme.Scheme,
@@ -262,8 +291,17 @@ func setupMedusaRestoreJobTestEnv(t *testing.T, ctx context.Context) *testutils.
 				Scheme:           scheme.Scheme,
 				ClientFactory:    medusaClientFactory,
 			}).SetupWithManager(dataPlaneMgr)
-			return err
+			if err != nil {
+				return err
+			}
+			go func() {
+				err := dataPlaneMgr.Start(ctx)
+				if err != nil {
+					t.Errorf("failed to start manager: %s", err)
+				}
+			}()
 		}
+		return nil
 	})
 	if err != nil {
 		t.Fatalf("failed to start test environment: %s", err)
@@ -291,7 +329,7 @@ func setupMedusaTaskTestEnv(t *testing.T, ctx context.Context) *testutils.MultiC
 	medusaClientFactory = NewMedusaClientFactory()
 
 	err := testEnv.Start(ctx, t, func(controlPlaneMgr manager.Manager, clientCache *clientcache.ClientCache, clusters []cluster.Cluster) error {
-		err := (&ctrl.K8ssandraClusterReconciler{
+		err := (&k8ssandractrl.K8ssandraClusterReconciler{
 			ReconcilerConfig: reconcilerConfig,
 			Client:           controlPlaneMgr.GetClient(),
 			Scheme:           scheme.Scheme,
@@ -301,7 +339,7 @@ func setupMedusaTaskTestEnv(t *testing.T, ctx context.Context) *testutils.MultiC
 		if err != nil {
 			return err
 		}
-		
+
 		for _, env := range testEnv.GetDataPlaneEnvTests() {
 			dataPlaneMgr, err := ctrl.NewManager(env.Config, ctrl.Options{Scheme: scheme.Scheme})
 			if err != nil {
@@ -322,8 +360,17 @@ func setupMedusaTaskTestEnv(t *testing.T, ctx context.Context) *testutils.MultiC
 				Scheme:           scheme.Scheme,
 				ClientFactory:    medusaClientFactory,
 			}).SetupWithManager(dataPlaneMgr)
-			return err
+			if err != nil {
+				return err
+			}
+			go func() {
+				err := dataPlaneMgr.Start(ctx)
+				if err != nil {
+					t.Errorf("failed to start manager: %s", err)
+				}
+			}()
 		}
+		return nil
 	})
 	if err != nil {
 		t.Fatalf("failed to start test environment: %s", err)
@@ -333,6 +380,4 @@ func setupMedusaTaskTestEnv(t *testing.T, ctx context.Context) *testutils.MultiC
 
 type fakeSeedsResolver struct {
 	callback func(dc *cassdcapi.CassandraDatacenter) ([]string, error)
-}
-
 }

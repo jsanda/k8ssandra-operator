@@ -20,7 +20,7 @@ import (
 func testMedusaRestoreDatacenter(t *testing.T, ctx context.Context, f *framework.Framework, namespace string) {
 	require := require.New(t)
 	err := f.Client.DeleteAllOf(ctx, &corev1.Pod{}, client.InNamespace(namespace))
-	k8sCtx0 := f.K8sContext(0)
+	k8sCtx0 := f.DataPlaneContexts[0]
 
 	kc := &k8ss.K8ssandraCluster{
 		ObjectMeta: metav1.ObjectMeta{
@@ -67,7 +67,7 @@ func testMedusaRestoreDatacenter(t *testing.T, ctx context.Context, f *framework
 
 	reconcileReplicatedSecret(ctx, t, f, kc)
 	t.Log("check that dc1 was created")
-	dc1Key := framework.ClusterKey{NamespacedName: types.NamespacedName{Namespace: namespace, Name: "dc1"}, K8sContext: k8sCtx0}
+	dc1Key := framework.NewClusterKey(f.DataPlaneContexts[0], namespace, "dc1")
 	require.Eventually(f.DatacenterExists(ctx, dc1Key), timeout, interval)
 
 	t.Log("update datacenter status to scaling up")
@@ -85,7 +85,7 @@ func testMedusaRestoreDatacenter(t *testing.T, ctx context.Context, f *framework
 	t.Log("check that the K8ssandraCluster status is updated")
 	require.Eventually(func() bool {
 		kc := &k8ss.K8ssandraCluster{}
-		err = f.Get(ctx, kcKey, kc)
+		err = f.Client.Get(ctx, kcKey.NamespacedName, kc)
 
 		if err != nil {
 			t.Logf("failed to get K8ssandraCluster: %v", err)
@@ -131,7 +131,8 @@ func testMedusaRestoreDatacenter(t *testing.T, ctx context.Context, f *framework
 		},
 	}
 
-	err = f.Client.Create(ctx, backup)
+	backupKey := framework.NewClusterKey(dc1Key.K8sContext, dc1Key.Namespace, restoredBackupName)
+	err = f.Create(ctx, backupKey, backup)
 	require.NoError(err, "failed to create CassandraBackup")
 
 	restore := &api.MedusaRestoreJob{
@@ -145,32 +146,29 @@ func testMedusaRestoreDatacenter(t *testing.T, ctx context.Context, f *framework
 		},
 	}
 
-	restoreKey := types.NamespacedName{Namespace: restore.Namespace, Name: restore.Name}
-	testClient := f.Client
-	err = testClient.Create(ctx, restore)
+	restoreKey := framework.NewClusterKey(dc1Key.K8sContext, dc1Key.Namespace, restore.ObjectMeta.Name)
+	err = f.Create(ctx, restoreKey, restore)
 	require.NoError(err, "failed to create MedusaRestoreJob")
 
-	dcKey := types.NamespacedName{Namespace: namespace, Name: "dc1"}
-
-	withDc := newWithDatacenter(t, ctx, dcKey, testClient)
+	withDc1 := f.NewWithDatacenter(ctx, dc1Key)
 
 	t.Log("check that the datacenter is set to be stopped")
-	require.Eventually(withDc(func(dc *cassdcapi.CassandraDatacenter) bool {
+	require.Eventually(withDc1(func(dc *cassdcapi.CassandraDatacenter) bool {
 		return dc.Spec.Stopped == true
 	}), timeout, interval, "timed out waiting for CassandraDatacenter stopped flag to be set")
 
 	t.Log("delete datacenter pods to simulate shutdown")
-	err = testClient.DeleteAllOf(ctx, &corev1.Pod{}, client.InNamespace(namespace), client.MatchingLabels{cassdcapi.DatacenterLabel: "dc1"})
+	err = f.DeleteAllOf(ctx, dc1Key.K8sContext, &corev1.Pod{}, client.InNamespace(namespace), client.MatchingLabels{cassdcapi.DatacenterLabel: "dc1"})
 	require.NoError(err, "failed to delete datacenter pods")
 
 	restore = &api.MedusaRestoreJob{}
-	err = testClient.Get(ctx, restoreKey, restore)
+	err = f.Get(ctx, restoreKey, restore)
 	require.NoError(err, "failed to get MedusaRestoreJob")
 
 	dcStoppedTime := restore.Status.StartTime.Time.Add(1 * time.Second)
 
 	t.Log("set datacenter status to stopped")
-	err = patchDatacenterStatus(ctx, dcKey, testClient, func(dc *cassdcapi.CassandraDatacenter) {
+	err = f.PatchDatacenterStatus(ctx, dc1Key, func(dc *cassdcapi.CassandraDatacenter) {
 		dc.SetCondition(cassdcapi.DatacenterCondition{
 			Type:               cassdcapi.DatacenterStopped,
 			Status:             corev1.ConditionTrue,
@@ -180,7 +178,7 @@ func testMedusaRestoreDatacenter(t *testing.T, ctx context.Context, f *framework
 	require.NoError(err, "failed to update datacenter status with stopped condition")
 
 	t.Log("check that the datacenter podTemplateSpec is updated")
-	require.Eventually(withDc(func(dc *cassdcapi.CassandraDatacenter) bool {
+	require.Eventually(withDc1(func(dc *cassdcapi.CassandraDatacenter) bool {
 		restoreContainer := findContainer(dc.Spec.PodTemplateSpec.Spec.InitContainers, "medusa-restore")
 		if restoreContainer == nil {
 			t.Log("restore container not found")
@@ -199,7 +197,7 @@ func testMedusaRestoreDatacenter(t *testing.T, ctx context.Context, f *framework
 	}), timeout, interval, "timed out waiting for CassandraDatacenter PodTemplateSpec update")
 
 	restore = &api.MedusaRestoreJob{}
-	err = testClient.Get(ctx, restoreKey, restore)
+	err = f.Get(ctx, restoreKey, restore)
 	require.NoError(err, "failed to get MedusaRestoreJob")
 
 	// In addition to checking Updating condition, the restore controller also checks the
@@ -208,7 +206,7 @@ func testMedusaRestoreDatacenter(t *testing.T, ctx context.Context, f *framework
 	// the StatefulSets. While we could create the StatefulSets in this test, it will be
 	// easier/better to verify the StatefulSet checks in unit and e2e tests.
 	t.Log("set datacenter status to updated")
-	err = patchDatacenterStatus(ctx, dcKey, testClient, func(dc *cassdcapi.CassandraDatacenter) {
+	err = f.PatchDatacenterStatus(ctx, dc1Key, func(dc *cassdcapi.CassandraDatacenter) {
 		dc.SetCondition(cassdcapi.DatacenterCondition{
 			Type:               cassdcapi.DatacenterUpdating,
 			Status:             corev1.ConditionFalse,
@@ -218,20 +216,20 @@ func testMedusaRestoreDatacenter(t *testing.T, ctx context.Context, f *framework
 	require.NoError(err, "failed to update datacenter status with updating condition")
 
 	dc := &cassdcapi.CassandraDatacenter{}
-	err = testClient.Get(ctx, dcKey, dc)
+	err = f.Get(ctx, dc1Key, dc)
 	require.NoError(err)
 
 	restore = &api.MedusaRestoreJob{}
-	err = testClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: "test-restore"}, restore)
+	err = f.Get(ctx, restoreKey, restore)
 	require.NoError(err)
 
 	t.Log("check datacenter restarted")
-	require.Eventually(withDc(func(dc *cassdcapi.CassandraDatacenter) bool {
+	require.Eventually(withDc1(func(dc *cassdcapi.CassandraDatacenter) bool {
 		return !dc.Spec.Stopped
 	}), timeout, interval)
 
 	t.Log("set datacenter status to ready")
-	err = patchDatacenterStatus(ctx, dcKey, testClient, func(dc *cassdcapi.CassandraDatacenter) {
+	err = f.PatchDatacenterStatus(ctx, dc1Key, func(dc *cassdcapi.CassandraDatacenter) {
 		dc.Status.CassandraOperatorProgress = cassdcapi.ProgressReady
 		dc.SetCondition(cassdcapi.DatacenterCondition{
 			Type:               cassdcapi.DatacenterReady,
@@ -245,7 +243,7 @@ func testMedusaRestoreDatacenter(t *testing.T, ctx context.Context, f *framework
 	t.Log("check restore status finish time set")
 	require.Eventually(func() bool {
 		restore := &api.MedusaRestoreJob{}
-		err := testClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: "test-restore"}, restore)
+		err := f.Get(ctx, restoreKey, restore)
 		if err != nil {
 			return false
 		}
@@ -253,6 +251,6 @@ func testMedusaRestoreDatacenter(t *testing.T, ctx context.Context, f *framework
 		return !restore.Status.FinishTime.IsZero()
 	}, timeout, interval)
 
-	err = f.DeleteK8ssandraCluster(ctx, client.ObjectKey{Namespace: kc.Namespace, Name: kc.Name})
+	err = f.DeleteK8ssandraCluster(ctx, client.ObjectKey{Namespace: kc.Namespace, Name: kc.Name}, timeout, interval)
 	require.NoError(err, "failed to delete K8ssandraCluster")
 }

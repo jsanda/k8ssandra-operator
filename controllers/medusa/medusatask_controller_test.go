@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -25,7 +24,7 @@ const (
 func testMedusaTasks(t *testing.T, ctx context.Context, f *framework.Framework, namespace string) {
 	require := require.New(t)
 
-	k8sCtx0 := f.K8sContext(0)
+	k8sCtx0 := f.DataPlaneContexts[0]
 
 	kc := &k8ss.K8ssandraCluster{
 		ObjectMeta: metav1.ObjectMeta{
@@ -73,7 +72,7 @@ func testMedusaTasks(t *testing.T, ctx context.Context, f *framework.Framework, 
 
 	reconcileReplicatedSecret(ctx, t, f, kc)
 	t.Log("check that dc1 was created")
-	dc1Key := framework.ClusterKey{NamespacedName: types.NamespacedName{Namespace: namespace, Name: "dc1"}, K8sContext: k8sCtx0}
+	dc1Key := framework.NewClusterKey(f.DataPlaneContexts[0], namespace, "dc1")
 	require.Eventually(f.DatacenterExists(ctx, dc1Key), timeout, interval)
 
 	t.Log("update datacenter status to scaling up")
@@ -86,7 +85,7 @@ func testMedusaTasks(t *testing.T, ctx context.Context, f *framework.Framework, 
 	})
 	require.NoError(err, "failed to patch datacenter status")
 
-	kcKey := framework.ClusterKey{K8sContext: k8sCtx0, NamespacedName: types.NamespacedName{Namespace: namespace, Name: "test"}}
+	kcKey := framework.NewClusterKey(f.ControlPlaneContext, namespace, "test")
 
 	t.Log("check that the K8ssandraCluster status is updated")
 	require.Eventually(func() bool {
@@ -147,13 +146,14 @@ func testMedusaTasks(t *testing.T, ctx context.Context, f *framework.Framework, 
 		},
 	}
 
-	err = f.Client.Create(ctx, purgeTask)
+	purgeKey := framework.NewClusterKey(f.DataPlaneContexts[0], namespace, "purge-backups")
+
+	err = f.Create(ctx, purgeKey, purgeTask)
 	require.NoError(err, "failed to create purge task")
 
-	purgeKey := types.NamespacedName{Namespace: namespace, Name: "purge-backups"}
 	require.Eventually(func() bool {
 		updated := &api.MedusaTask{}
-		err := f.Client.Get(context.Background(), purgeKey, updated)
+		err := f.Get(ctx, purgeKey, updated)
 		if err != nil {
 			t.Logf("failed to get purge task: %v", err)
 			return false
@@ -163,10 +163,10 @@ func testMedusaTasks(t *testing.T, ctx context.Context, f *framework.Framework, 
 	}, timeout, interval)
 
 	// After a purge, a sync should get created
-	purgeSyncKey := types.NamespacedName{Namespace: namespace, Name: "purge-backups-sync"}
+	purgeSyncKey := framework.NewClusterKey(f.DataPlaneContexts[0], namespace, "purge-backups-sync")
 	require.Eventually(func() bool {
 		updated := &api.MedusaTask{}
-		err := f.Client.Get(context.Background(), purgeSyncKey, updated)
+		err := f.Get(ctx, purgeSyncKey, updated)
 		if err != nil {
 			t.Logf("failed to get sync task: %v", err)
 			return false
@@ -175,7 +175,7 @@ func testMedusaTasks(t *testing.T, ctx context.Context, f *framework.Framework, 
 		return !updated.Status.FinishTime.IsZero()
 	}, timeout, interval)
 
-	err = f.DeleteK8ssandraCluster(ctx, client.ObjectKey{Namespace: kc.Namespace, Name: kc.Name})
+	err = f.DeleteK8ssandraCluster(ctx, client.ObjectKey{Namespace: kc.Namespace, Name: kc.Name}, timeout, interval)
 	require.NoError(err, "failed to delete K8ssandraCluster")
 	verifyObjectDoesNotExist(ctx, t, f, dc1Key, &cassdcapi.CassandraDatacenter{})
 }

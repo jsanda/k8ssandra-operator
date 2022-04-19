@@ -48,7 +48,7 @@ func createSingleMedusaJob(t *testing.T, ctx context.Context, namespace string, 
 	checkMedusaContainersExist(t, ctx, namespace, dcKey, f, kc)
 	createBackupJob(t, ctx, namespace, f, dcKey)
 	verifyBackupJobFinished(t, ctx, f, dcKey, backupKey)
-	restoreBackupJob(t, ctx, namespace, f, dcKey, kcKey)
+	restoreBackupJob(t, ctx, namespace, f, dcKey)
 	verifyRestoreJobFinished(t, ctx, f, dcKey, backupKey)
 }
 
@@ -77,7 +77,7 @@ func createMultiMedusa(t *testing.T, ctx context.Context, namespace string, f *f
 
 	// Restore the backup in each DC and verify it finished correctly
 	for _, dcKey := range []framework.ClusterKey{dc1Key, dc2Key} {
-		restoreBackupJob(t, ctx, namespace, f, dcKey, kcKey)
+		restoreBackupJob(t, ctx, namespace, f, dcKey)
 	}
 	for _, dcKey := range []framework.ClusterKey{dc1Key, dc2Key} {
 		verifyRestoreJobFinished(t, ctx, f, dcKey, backupKey)
@@ -232,7 +232,7 @@ func restoreBackup(t *testing.T, ctx context.Context, namespace string, f *frame
 	checkDatacenterUpdating(t, ctx, dcKey, f)
 }
 
-func restoreBackupJob(t *testing.T, ctx context.Context, namespace string, f *framework.E2eFramework, dcKey framework.ClusterKey, kcKey framework.ClusterKey) {
+func restoreBackupJob(t *testing.T, ctx context.Context, namespace string, f *framework.E2eFramework, dcKey framework.ClusterKey) {
 	require := require.New(t)
 	t.Log("restoring MedusaBackup")
 	restore := &medusa.MedusaRestoreJob{

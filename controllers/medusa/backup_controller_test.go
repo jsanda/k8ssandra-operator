@@ -176,7 +176,9 @@ func createAndVerifyBackup(
 					Name: "cql",
 					Port: 9042,
 				},
-			}
+			},
+		},
+	}
 
 	err := f.Create(ctx, dcServiceKey, dcService)
 	require.NoError(t, err)

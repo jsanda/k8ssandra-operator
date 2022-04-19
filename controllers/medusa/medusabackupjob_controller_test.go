@@ -15,14 +15,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func testMedusaBackupDatacenter(t *testing.T, ctx context.Context, f *framework.Framework, namespace string) {
 	require := require.New(t)
 
-	k8sCtx0 := f.K8sContext(0)
+	k8sCtx0 := f.DataPlaneContexts[0]
 
 	kc := &k8ss.K8ssandraCluster{
 		ObjectMeta: metav1.ObjectMeta{
@@ -69,7 +68,7 @@ func testMedusaBackupDatacenter(t *testing.T, ctx context.Context, f *framework.
 
 	reconcileReplicatedSecret(ctx, t, f, kc)
 	t.Log("check that dc1 was created")
-	dc1Key := framework.ClusterKey{NamespacedName: types.NamespacedName{Namespace: namespace, Name: "dc1"}, K8sContext: k8sCtx0}
+	dc1Key := framework.NewClusterKey(f.DataPlaneContexts[0], namespace, "dc1")
 	require.Eventually(f.DatacenterExists(ctx, dc1Key), timeout, interval)
 
 	t.Log("update datacenter status to scaling up")
@@ -82,7 +81,7 @@ func testMedusaBackupDatacenter(t *testing.T, ctx context.Context, f *framework.
 	})
 	require.NoError(err, "failed to patch datacenter status")
 
-	kcKey := framework.ClusterKey{K8sContext: k8sCtx0, NamespacedName: types.NamespacedName{Namespace: namespace, Name: "test"}}
+	kcKey := framework.NewClusterKey(f.ControlPlaneContext, namespace, "test")
 
 	t.Log("check that the K8ssandraCluster status is updated")
 	require.Eventually(func() bool {
@@ -132,15 +131,15 @@ func testMedusaBackupDatacenter(t *testing.T, ctx context.Context, f *framework.
 		fmt.Sprintf("%s:%d", getPodIpAddress(2), shared.BackupSidecarPort): {defaultBackupName},
 	}, medusaClientFactory.GetRequestedBackups())
 
-	err = f.DeleteK8ssandraCluster(ctx, client.ObjectKey{Namespace: kc.Namespace, Name: kc.Name})
+	err = f.DeleteK8ssandraCluster(ctx, client.ObjectKey{Namespace: kc.Namespace, Name: kc.Name}, timeout, interval)
 	require.NoError(err, "failed to delete K8ssandraCluster")
 	verifyObjectDoesNotExist(ctx, t, f, dc1Key, &cassdcapi.CassandraDatacenter{})
 }
 
 func createAndVerifyMedusaBackup(dcKey framework.ClusterKey, dc *cassdcapi.CassandraDatacenter, f *framework.Framework, ctx context.Context, require *require.Assertions, t *testing.T, namespace, backupName string) bool {
-	dcServiceKey := types.NamespacedName{Namespace: dcKey.Namespace, Name: dc.GetAllPodsServiceName()}
+	dcServiceKey := framework.NewClusterKey(dcKey.K8sContext, dcKey.Namespace, dc.GetAllPodsServiceName())
 	dcService := &corev1.Service{}
-	if err := f.Client.Get(ctx, dcServiceKey, dcService); err != nil {
+	if err := f.Get(ctx, dcServiceKey, dcService); err != nil {
 		if errors.IsNotFound(err) {
 			dcService = &corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{
@@ -160,17 +159,17 @@ func createAndVerifyMedusaBackup(dcKey framework.ClusterKey, dc *cassdcapi.Cassa
 				},
 			}
 
-			err := f.Client.Create(ctx, dcService)
+			err := f.Create(ctx, dcServiceKey, dcService)
 			require.NoError(err)
 		} else {
 			t.Errorf("failed to get service %s: %v", dcServiceKey, err)
 		}
 	}
 
-	createDatacenterPods(t, ctx, dc, f.Client)
+	createDatacenterPods(t, f, ctx, dcKey, dc)
 
 	t.Log("creating MedusaBackupJob")
-	backupKey := types.NamespacedName{Namespace: namespace, Name: backupName}
+	backupKey := framework.NewClusterKey(dcKey.K8sContext, dcKey.Namespace, backupName)
 	backup := &api.MedusaBackupJob{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: namespace,
@@ -181,14 +180,14 @@ func createAndVerifyMedusaBackup(dcKey framework.ClusterKey, dc *cassdcapi.Cassa
 		},
 	}
 
-	err := f.Client.Create(ctx, backup)
+	err := f.Create(ctx, backupKey, backup)
 	require.NoError(err, "failed to create MedusaBackupJob")
 
 	t.Log("verify that the backups are started")
 	require.Eventually(func() bool {
 		t.Logf("Requested backups: %v", medusaClientFactory.GetRequestedBackups())
 		updated := &api.MedusaBackupJob{}
-		err := f.Client.Get(context.Background(), backupKey, updated)
+		err := f.Get(ctx, backupKey, updated)
 		if err != nil {
 			t.Logf("failed to get MedusaBackupJob: %v", err)
 			return false
@@ -200,7 +199,7 @@ func createAndVerifyMedusaBackup(dcKey framework.ClusterKey, dc *cassdcapi.Cassa
 	require.Eventually(func() bool {
 		t.Logf("Requested backups: %v", medusaClientFactory.GetRequestedBackups())
 		updated := &api.MedusaBackupJob{}
-		err := f.Client.Get(context.Background(), backupKey, updated)
+		err := f.Get(ctx, backupKey, updated)
 		if err != nil {
 			return false
 		}

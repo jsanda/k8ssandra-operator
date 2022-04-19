@@ -5,12 +5,13 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/k8ssandra/k8ssandra-operator/pkg/utils"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/k8ssandra/k8ssandra-operator/pkg/utils"
 
 	"github.com/k8ssandra/k8ssandra-operator/pkg/annotations"
 	"github.com/k8ssandra/k8ssandra-operator/pkg/stargate"
@@ -202,15 +203,13 @@ func TestOperator(t *testing.T) {
 	}))
 	t.Run("CreateSingleMedusaJob", e2eTest(ctx, &e2eTestOpts{
 		testFunc:                     createSingleMedusaJob,
-		fixture:                      framework.NewTestFixture("single-dc-medusa"),
-		deployTraefik:                false,
+		fixture:                      framework.NewTestFixture("single-dc-medusa", controlPlane),
 		skipK8ssandraClusterCleanup:  false,
 		doCassandraDatacenterCleanup: false,
 	}))
 	t.Run("CreateMultiMedusaJob", e2eTest(ctx, &e2eTestOpts{
 		testFunc:                     createMultiMedusaJob,
-		fixture:                      framework.NewTestFixture("multi-dc-medusa"),
-		deployTraefik:                false,
+		fixture:                      framework.NewTestFixture("multi-dc-medusa", controlPlane),
 		skipK8ssandraClusterCleanup:  false,
 		doCassandraDatacenterCleanup: false,
 	}))
