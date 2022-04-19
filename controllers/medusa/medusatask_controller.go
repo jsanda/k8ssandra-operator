@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -68,10 +67,16 @@ func (r *MedusaTaskReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if errors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
-		return ctrl.Result{RequeueAfter: r.DefaultDelay}, err
+		return ctrl.Result{}, err
 	}
 
 	task := instance.DeepCopy()
+
+	// If the task is already finished, there is nothing to do.
+	if taskFinished(task) {
+		logger.Info("Task is already finished", "MedusaTask", req.NamespacedName, "Operation", task.Spec.Operation)
+		return ctrl.Result{Requeue: false}, nil
+	}
 
 	// First check to see if the task is already in progress
 	if !task.Status.StartTime.IsZero() {
@@ -90,7 +95,7 @@ func (r *MedusaTaskReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		task.Status.FinishTime = metav1.Now()
 		if err := r.Status().Patch(ctx, task, patch); err != nil {
 			logger.Error(err, "failed to patch status with finish time")
-			return ctrl.Result{RequeueAfter: r.DefaultDelay}, err
+			return ctrl.Result{}, err
 		}
 
 		// Schedule a sync if the task is a purge
@@ -101,25 +106,19 @@ func (r *MedusaTaskReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{Requeue: false}, nil
 	}
 
-	// If the task is already finished, there is nothing to do.
-	if taskFinished(task) {
-		logger.Info("Task is already finished", "MedusaTask", req.NamespacedName, "Operation", task.Spec.Operation)
-		return ctrl.Result{Requeue: false}, nil
-	}
-
 	// Task hasn't started yet
 	cassdcKey := types.NamespacedName{Namespace: task.Namespace, Name: task.Spec.CassandraDatacenter}
 	cassdc := &cassdcapi.CassandraDatacenter{}
 	err = r.Get(ctx, cassdcKey, cassdc)
 	if err != nil {
 		logger.Error(err, "failed to get cassandradatacenter", "CassandraDatacenter", cassdcKey)
-		return ctrl.Result{RequeueAfter: r.DefaultDelay}, err
+		return ctrl.Result{}, err
 	}
 
 	pods, err := r.getCassandraDatacenterPods(ctx, cassdc, logger)
 	if err != nil {
 		logger.Error(err, "Failed to get datacenter pods")
-		return ctrl.Result{RequeueAfter: r.DefaultDelay}, err
+		return ctrl.Result{}, err
 	}
 
 	if task.Spec.Operation == medusav1alpha1.OperationTypePurge {
@@ -160,7 +159,7 @@ func (r *MedusaTaskReconciler) purgeOperation(ctx context.Context, task *medusav
 	if err := r.Status().Patch(ctx, task, patch); err != nil {
 		logger.Error(err, "Failed to patch status")
 		// We received a stale object, requeue for next processing
-		return ctrl.Result{RequeueAfter: r.DefaultDelay}, err
+		return ctrl.Result{}, err
 	}
 
 	// Invoke the purge operation on all pods, in the background
@@ -206,7 +205,7 @@ func (r *MedusaTaskReconciler) purgeOperation(ctx context.Context, task *medusav
 		wg.Wait()
 		logger.Info("finished task operations")
 		if err := r.Status().Patch(context.Background(), task, patch); err != nil {
-			logger.Error(err, "failed to patch status", "MedusaTask", fmt.Sprintf("%s/%s", task.Spec.Operation, task.Namespace))
+			logger.Error(err, "failed to patch status", "MedusaTask", fmt.Sprint(task))
 		}
 	}()
 
@@ -226,7 +225,7 @@ func (r *MedusaTaskReconciler) prepareRestoreOperation(ctx context.Context, task
 	if err := r.Status().Patch(ctx, task, patch); err != nil {
 		logger.Error(err, "Failed to patch status")
 		// We received a stale object, requeue for next processing
-		return ctrl.Result{RequeueAfter: r.DefaultDelay}, err
+		return ctrl.Result{}, err
 	}
 
 	// Invoke the purge operation on all pods, in the background
@@ -267,7 +266,7 @@ func (r *MedusaTaskReconciler) prepareRestoreOperation(ctx context.Context, task
 		wg.Wait()
 		logger.Info("finished task operations")
 		if err := r.Status().Patch(context.Background(), task, patch); err != nil {
-			logger.Error(err, "failed to patch status", "MedusaTask", fmt.Sprintf("%s/%s", task.Spec.Operation, task.Namespace))
+			logger.Error(err, "failed to patch status", "MedusaTask", fmt.Sprint(task))
 		}
 	}()
 
@@ -276,7 +275,12 @@ func (r *MedusaTaskReconciler) prepareRestoreOperation(ctx context.Context, task
 
 func (r *MedusaTaskReconciler) syncOperation(ctx context.Context, task *medusav1alpha1.MedusaTask, pods []corev1.Pod, logger logr.Logger) (reconcile.Result, error) {
 	logger.Info("Starting sync operation")
-	syncStartTime := metav1.Now()
+	patch := client.MergeFrom(task.DeepCopy())
+	task.Status.StartTime = metav1.Now()
+	if err := r.Status().Patch(ctx, task, patch); err != nil {
+		logger.Error(err, "failed to patch status", "MedusaTask", fmt.Sprint(task))
+		return ctrl.Result{}, err
+	}
 	for _, pod := range pods {
 		logger.Info("Listing Backups", "CassandraPod", pod.Name)
 		if remoteBackups, err := getBackups(ctx, &pod, r.ClientFactory); err != nil {
@@ -305,36 +309,15 @@ func (r *MedusaTaskReconciler) syncOperation(ctx context.Context, task *medusav1
 						}
 						if err := r.Create(ctx, backupResource); err != nil {
 							logger.Error(err, "failed to create backup", "MedusaBackup", backup.BackupName)
-							return ctrl.Result{RequeueAfter: r.DefaultDelay}, err
+							return ctrl.Result{}, err
 						} else {
 							logger.Info("Created Medusa Backup", "Backup", backupResource)
-							// Read the backup again. Multiple attempts may be necessary due to caches, which is why the Get operation is in a loop.
-							backupInstance := &medusav1alpha1.MedusaBackup{}
-							found := false
-							for stay, timeout := true, time.After(10*time.Second); stay; {
-								err := r.Get(ctx, backupKey, backupInstance)
-								if err == nil {
-									stay = false
-									found = true
-								} else {
-									time.Sleep(time.Second)
-									select {
-									case <-timeout:
-										stay = false
-									default:
-									}
-								}
-							}
-							if !found {
-								logger.Error(err, "failed to read backup", "MedusaBackup", backup.BackupName)
-								return ctrl.Result{RequeueAfter: r.DefaultDelay}, err
-							}
-							backupPatch := client.MergeFrom(backupInstance.DeepCopy())
-							backupInstance.Status.StartTime = startTime
-							backupInstance.Status.FinishTime = finishTime
-							if err := r.Status().Patch(ctx, backupInstance, backupPatch); err != nil {
+							backupPatch := client.MergeFrom(backupResource.DeepCopy())
+							backupResource.Status.StartTime = startTime
+							backupResource.Status.FinishTime = finishTime
+							if err := r.Status().Patch(ctx, backupResource, backupPatch); err != nil {
 								logger.Error(err, "failed to patch status with finish time")
-								return ctrl.Result{RequeueAfter: r.DefaultDelay}, err
+								return ctrl.Result{}, err
 							}
 
 						}
@@ -349,14 +332,14 @@ func (r *MedusaTaskReconciler) syncOperation(ctx context.Context, task *medusav1
 			localBackups := &medusav1alpha1.MedusaBackupList{}
 			if err = r.List(ctx, localBackups, client.InNamespace(task.Namespace)); err != nil {
 				logger.Error(err, "failed to list backups")
-				return ctrl.Result{RequeueAfter: r.DefaultDelay}, err
+				return ctrl.Result{}, err
 			}
 			for _, backup := range localBackups.Items {
 				if !backupExistsRemotely(remoteBackups, backup.ObjectMeta.Name) {
 					logger.Info("Deleting Cassandra Backup", "Backup", backup.ObjectMeta.Name)
 					if err := r.Delete(ctx, &backup); err != nil {
 						logger.Error(err, "failed to delete backup", "MedusaBackup", backup.ObjectMeta.Name)
-						return ctrl.Result{RequeueAfter: r.DefaultDelay}, err
+						return ctrl.Result{}, err
 					} else {
 						logger.Info("Deleted Cassandra Backup", "Backup", backup.ObjectMeta.Name)
 					}
@@ -364,15 +347,14 @@ func (r *MedusaTaskReconciler) syncOperation(ctx context.Context, task *medusav1
 			}
 
 			// Update task status at the end of the reconcile
-			logger.Info("finished task operations", "MedusaTask", fmt.Sprintf("%s/%s", task.Spec.Operation, task.Namespace))
-			patch := client.MergeFrom(task.DeepCopy())
-			task.Status.StartTime = syncStartTime
+			logger.Info("finished task operations", "MedusaTask", fmt.Sprint(task))
+			finishPatch := client.MergeFrom(task.DeepCopy())
 			task.Status.FinishTime = metav1.Now()
 			taskResult := medusav1alpha1.TaskResult{PodName: pod.Name}
 			task.Status.Finished = append(task.Status.Finished, taskResult)
-			if err := r.Status().Patch(context.Background(), task, patch); err != nil {
-				logger.Error(err, "failed to patch status", "MedusaTask", fmt.Sprintf("%s/%s", task.Spec.Operation, task.Namespace))
-				return ctrl.Result{RequeueAfter: r.DefaultDelay}, err
+			if err := r.Status().Patch(ctx, task, finishPatch); err != nil {
+				logger.Error(err, "failed to patch status", "MedusaTask", fmt.Sprint(task))
+				return ctrl.Result{}, err
 			}
 			return ctrl.Result{}, nil
 		}

@@ -17,6 +17,8 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"fmt"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -89,6 +91,10 @@ type MedusaTask struct {
 
 	Spec   MedusaTaskSpec   `json:"spec,omitempty"`
 	Status MedusaTaskStatus `json:"status,omitempty"`
+}
+
+func (task *MedusaTask) String() string {
+	return fmt.Sprintf("%s/%s", task.Spec.Operation, task.Namespace)
 }
 
 //+kubebuilder:object:root=true
