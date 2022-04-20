@@ -9,6 +9,7 @@ import (
 	"github.com/k8ssandra/k8ssandra-operator/pkg/annotations"
 	"github.com/k8ssandra/k8ssandra-operator/pkg/result"
 	corev1 "k8s.io/api/core/v1"
+	discovery "k8s.io/api/discovery/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -64,29 +65,29 @@ func (r *K8ssandraClusterReconciler) reconcileSeedsEndpoints(
 	// https://github.com/k8ssandra/k8ssandra-operator/issues/210 for a detailed
 	// explanation of why this is being done.
 
-	desiredEndpoints := newEndpoints(dc, seeds, additionalSeeds)
-	actualEndpoints := &corev1.Endpoints{}
-	endpointsKey := client.ObjectKey{Namespace: desiredEndpoints.Namespace, Name: desiredEndpoints.Name}
+	desiredEndpointSlice := newEndpointSlice(dc, seeds, additionalSeeds)
+	actualEndpointSlice := &discovery.EndpointSlice{}
+	endpointSliceKey := client.ObjectKey{Namespace: desiredEndpointSlice.Namespace, Name: desiredEndpointSlice.Name}
 
-	if err := remoteClient.Get(ctx, endpointsKey, actualEndpoints); err == nil {
+	if err := remoteClient.Get(ctx, endpointSliceKey, actualEndpointSlice); err == nil {
 		// We can't have an Endpoints object that has no addresses or notReadyAddresses for
 		// its EndpointSubset elements. This would be the case if both seeds and
 		// additionalSeeds are empty, so we delete the Endpoints.
 		if len(seeds) == 0 && len(additionalSeeds) == 0 {
-			if err := remoteClient.Delete(ctx, actualEndpoints); err != nil {
+			if err := remoteClient.Delete(ctx, actualEndpointSlice); err != nil {
 				return result.Error(fmt.Errorf("failed to delete endpoints for dc (%s): %v", dc.Name, err))
 			}
 			return result.Continue()
 		}
 
-		if !annotations.CompareHashAnnotations(actualEndpoints, desiredEndpoints) {
-			logger.Info("Updating endpoints", "Endpoints", endpointsKey)
-			actualEndpoints := actualEndpoints.DeepCopy()
-			resourceVersion := actualEndpoints.GetResourceVersion()
-			desiredEndpoints.DeepCopyInto(actualEndpoints)
-			actualEndpoints.SetResourceVersion(resourceVersion)
-			if err = remoteClient.Update(ctx, actualEndpoints); err != nil {
-				logger.Error(err, "Failed to update endpoints", "Endpoints", endpointsKey)
+		if !annotations.CompareHashAnnotations(actualEndpointSlice, desiredEndpointSlice) {
+			logger.Info("Updating endpoints", "EndpointSlice", endpointSliceKey)
+			actualEndpointSlice := actualEndpointSlice.DeepCopy()
+			resourceVersion := actualEndpointSlice.GetResourceVersion()
+			desiredEndpointSlice.DeepCopyInto(actualEndpointSlice)
+			actualEndpointSlice.SetResourceVersion(resourceVersion)
+			if err = remoteClient.Update(ctx, actualEndpointSlice); err != nil {
+				logger.Error(err, "Failed to update endpoints", "EndpointSlice", endpointSliceKey)
 				return result.Error(err)
 			}
 		}
@@ -100,50 +101,67 @@ func (r *K8ssandraClusterReconciler) reconcileSeedsEndpoints(
 			// cannot create an Endpoints object that has both empty Addresses and
 			// empty NotReadyAddresses.
 			if len(seeds) > 0 || len(additionalSeeds) > 0 {
-				logger.Info("Creating endpoints", "Endpoints", endpointsKey)
-				if err = remoteClient.Create(ctx, desiredEndpoints); err != nil {
-					logger.Error(err, "Failed to create endpoints", "Endpoints", endpointsKey)
+				logger.Info("Creating endpoints", "EndpointsSlice", endpointSliceKey)
+				if err = remoteClient.Create(ctx, desiredEndpointSlice); err != nil {
+					logger.Error(err, "Failed to create endpoints", "EndpointSlice", endpointSliceKey)
 					return result.Error(err)
 				}
 			}
 		} else {
-			logger.Error(err, "Failed to get endpoints", "Endpoints", endpointsKey)
+			logger.Error(err, "Failed to get endpoints", "EndpointSlice", endpointSliceKey)
 			return result.Error(err)
 		}
 	}
 	return result.Continue()
 }
 
-// newEndpoints returns an Endpoints object who is named after the additional seeds service
+// newEndpointSlice returns an Endpoints object who is named after the additional seeds service
 // of dc.
-func newEndpoints(dc *cassdcapi.CassandraDatacenter, seeds []corev1.Pod, additionalSeeds []string) *corev1.Endpoints {
-	ep := &corev1.Endpoints{
+func newEndpointSlice(dc *cassdcapi.CassandraDatacenter, seeds []corev1.Pod, additionalSeeds []string) *discovery.EndpointSlice {
+	slice := &discovery.EndpointSlice{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace:   dc.Namespace,
 			Name:        dc.GetAdditionalSeedsServiceName(),
 			Labels:      dc.GetDatacenterLabels(),
 			Annotations: map[string]string{},
 		},
+		AddressType: discovery.AddressTypeIPv4,
+		Endpoints:   make([]discovery.Endpoint, 0, len(seeds)),
 	}
 
-	addresses := make([]corev1.EndpointAddress, 0, len(seeds))
 	for _, seed := range seeds {
-		addresses = append(addresses, corev1.EndpointAddress{
-			IP: seed.Status.PodIP,
+		slice.Endpoints = append(slice.Endpoints, discovery.Endpoint{
+			Addresses: []string{seed.Status.PodIP},
 		})
 	}
 
-	for _, seed := range additionalSeeds {
-		addresses = append(addresses, corev1.EndpointAddress{IP: seed})
-	}
+	//ep := &corev1.Endpoints{
+	//	ObjectMeta: metav1.ObjectMeta{
+	//		Namespace:   dc.Namespace,
+	//		Name:        dc.GetAdditionalSeedsServiceName(),
+	//		Labels:      dc.GetDatacenterLabels(),
+	//		Annotations: map[string]string{},
+	//	},
+	//}
+	//
+	//addresses := make([]corev1.EndpointAddress, 0, len(seeds))
+	//for _, seed := range seeds {
+	//	addresses = append(addresses, corev1.EndpointAddress{
+	//		IP: seed.Status.PodIP,
+	//	})
+	//}
+	//
+	//for _, seed := range additionalSeeds {
+	//	addresses = append(addresses, corev1.EndpointAddress{IP: seed})
+	//}
+	//
+	//ep.Subsets = []corev1.EndpointSubset{
+	//	{
+	//		Addresses: addresses,
+	//	},
+	//}
 
-	ep.Subsets = []corev1.EndpointSubset{
-		{
-			Addresses: addresses,
-		},
-	}
+	annotations.AddHashAnnotation(slice)
 
-	annotations.AddHashAnnotation(ep)
-
-	return ep
+	return slice
 }
