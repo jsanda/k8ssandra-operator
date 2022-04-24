@@ -32,6 +32,15 @@ func HasLabelWithValue(component Labeled, labelKey string, labelValue string) bo
 	return GetLabel(component, labelKey) == labelValue
 }
 
+func HasLabelsWithValues(component Labeled, labels map[string]string) bool {
+	for k, v := range labels {
+		if !HasLabelWithValue(component, k, v) {
+			return false
+		}
+	}
+	return true
+}
+
 // SetManagedBy sets the required labels for making a component managed by K8ssandra.
 // klusterKey specifies the namespace and name of the K8ssandraCluster.
 func SetManagedBy(component Labeled, klusterKey client.ObjectKey) {

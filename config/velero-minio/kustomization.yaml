@@ -4,9 +4,4 @@ kind: Kustomization
 namespace: k8ssandra-operator
 
 resources:
-  - ../../default
-
-images:
-  - name: jsanda/k8ssandra-operator
-    newTag: latest
-
+  - ./minio-deployment.yaml

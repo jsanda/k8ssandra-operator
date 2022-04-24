@@ -279,6 +279,9 @@ create-clientconfig:
 		  --dest-context kind-k8ssandra-0; \
 	done
 
+deploy-velero:
+	./scripts/deploy-velero.sh
+
 
 CONTROLLER_GEN = $(shell pwd)/bin/controller-gen
 controller-gen: ## Download controller-gen locally if necessary.

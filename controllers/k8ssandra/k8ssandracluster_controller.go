@@ -57,18 +57,18 @@ type K8ssandraClusterReconciler struct {
 	ManagementApi cassandra.ManagementApiFactory
 }
 
-// +kubebuilder:rbac:groups=k8ssandra.io,namespace="k8ssandra",resources=k8ssandraclusters;clientconfigs,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=config.k8ssandra.io,namespace="k8ssandra",resources=clientconfigs,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=k8ssandra.io,namespace="k8ssandra",resources=k8ssandraclusters/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=k8ssandra.io,namespace="k8ssandra",resources=k8ssandraclusters/finalizers,verbs=update
-// +kubebuilder:rbac:groups=cassandra.datastax.com,namespace="k8ssandra",resources=cassandradatacenters,verbs=get;list;watch;create;update;delete;patch
-// +kubebuilder:rbac:groups=control.k8ssandra.io,namespace="k8ssandra",resources=cassandratasks,verbs=get;list;watch;create;update;delete;patch
-// +kubebuilder:rbac:groups=stargate.k8ssandra.io,namespace="k8ssandra",resources=stargates,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=reaper.k8ssandra.io,namespace="k8ssandra",resources=reapers,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=core,namespace="k8ssandra",resources=pods;secrets,verbs=get;list;watch
-// +kubebuilder:rbac:groups=core,namespace="k8ssandra",resources=endpoints,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=monitoring.coreos.com,namespace="k8ssandra",resources=servicemonitors,verbs=get;list;watch;create;update;patch;delete;deletecollection
-// +kubebuilder:rbac:groups=core,namespace="k8ssandra",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=k8ssandra.io,namespace="k8ssandra-operator",resources=k8ssandraclusters;clientconfigs,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=config.k8ssandra.io,namespace="k8ssandra-operator",resources=clientconfigs,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=k8ssandra.io,namespace="k8ssandra-operator",resources=k8ssandraclusters/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=k8ssandra.io,namespace="k8ssandra-operator",resources=k8ssandraclusters/finalizers,verbs=update
+// +kubebuilder:rbac:groups=cassandra.datastax.com,namespace="k8ssandra-operator",resources=cassandradatacenters,verbs=get;list;watch;create;update;delete;patch
+// +kubebuilder:rbac:groups=control.k8ssandra.io,namespace="k8ssandra-operator",resources=cassandratasks,verbs=get;list;watch;create;update;delete;patch
+// +kubebuilder:rbac:groups=stargate.k8ssandra.io,namespace="k8ssandra-operator",resources=stargates,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=reaper.k8ssandra.io,namespace="k8ssandra-operator",resources=reapers,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,namespace="k8ssandra-operator",resources=pods;secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups=core,namespace="k8ssandra-operator",resources=endpoints,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=monitoring.coreos.com,namespace="k8ssandra-operator",resources=servicemonitors,verbs=get;list;watch;create;update;patch;delete;deletecollection
+// +kubebuilder:rbac:groups=core,namespace="k8ssandra-operator",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 
 func (r *K8ssandraClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx).WithValues("K8ssandraCluster", req.NamespacedName)

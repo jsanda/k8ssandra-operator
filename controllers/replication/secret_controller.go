@@ -37,10 +37,10 @@ const (
 )
 
 // We need rights to update the target cluster's secrets, not necessarily this cluster
-// +kubebuilder:rbac:groups=core,namespace="k8ssandra",resources=secrets,verbs=get;list;watch;update;create;delete
-// +kubebuilder:rbac:groups=replication.k8ssandra.io,namespace="k8ssandra",resources=replicatedsecrets,verbs=get;list;watch;update;create;delete
-// +kubebuilder:rbac:groups=replication.k8ssandra.io,namespace="k8ssandra",resources=replicatedsecrets/finalizers,verbs=update
-// +kubebuilder:rbac:groups=replication.k8ssandra.io,namespace="k8ssandra",resources=replicatedsecrets/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=core,namespace="k8ssandra-operator",resources=secrets,verbs=get;list;watch;update;create;delete
+// +kubebuilder:rbac:groups=replication.k8ssandra.io,namespace="k8ssandra-operator",resources=replicatedsecrets,verbs=get;list;watch;update;create;delete
+// +kubebuilder:rbac:groups=replication.k8ssandra.io,namespace="k8ssandra-operator",resources=replicatedsecrets/finalizers,verbs=update
+// +kubebuilder:rbac:groups=replication.k8ssandra.io,namespace="k8ssandra-operator",resources=replicatedsecrets/status,verbs=get;update;patch
 
 type SecretSyncController struct {
 	*config.ReconcilerConfig

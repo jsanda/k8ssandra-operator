@@ -1,0 +1,6 @@
+apiVersion: velero.k8ssandra.io/v1alpha1
+kind: CassandraBackup
+metadata:
+  name: cassandrabackup-sample
+spec:
+  # TODO(user): Add fields here

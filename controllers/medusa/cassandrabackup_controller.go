@@ -53,10 +53,10 @@ type CassandraBackupReconciler struct {
 	medusa.ClientFactory
 }
 
-// +kubebuilder:rbac:groups=medusa.k8ssandra.io,namespace="k8ssandra",resources=cassandrabackups,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=medusa.k8ssandra.io,namespace="k8ssandra",resources=cassandrabackups/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=medusa.datastax.com,namespace="k8ssandra",resources=cassandradatacenters,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",namespace="k8ssandra",resources=pods;services,verbs=get;list;watch
+// +kubebuilder:rbac:groups=medusa.k8ssandra.io,namespace="k8ssandra-operator",resources=cassandrabackups,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=medusa.k8ssandra.io,namespace="k8ssandra-operator",resources=cassandrabackups/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=medusa.datastax.com,namespace="k8ssandra-operator",resources=cassandradatacenters,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",namespace="k8ssandra-operator",resources=pods;services,verbs=get;list;watch
 
 func (r *CassandraBackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx).WithValues("cassandrabackup", req.NamespacedName)

@@ -49,11 +49,11 @@ type ReaperReconciler struct {
 	NewManager func() reaper.Manager
 }
 
-// +kubebuilder:rbac:groups=reaper.k8ssandra.io,namespace="k8ssandra",resources=reapers,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=reaper.k8ssandra.io,namespace="k8ssandra",resources=reapers/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups="apps",namespace="k8ssandra",resources=deployments,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups="core",namespace="k8ssandra",resources=pods;secrets,verbs=get;list;watch
-// +kubebuilder:rbac:groups="core",namespace="k8ssandra",resources=services,verbs=get;list;watch;create
+// +kubebuilder:rbac:groups=reaper.k8ssandra.io,namespace="k8ssandra-operator",resources=reapers,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=reaper.k8ssandra.io,namespace="k8ssandra-operator",resources=reapers/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups="apps",namespace="k8ssandra-operator",resources=deployments,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="core",namespace="k8ssandra-operator",resources=pods;secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups="core",namespace="k8ssandra-operator",resources=services,verbs=get;list;watch;create
 
 func (r *ReaperReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx, "Reaper", req.NamespacedName)

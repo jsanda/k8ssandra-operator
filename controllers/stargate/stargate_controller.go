@@ -46,13 +46,13 @@ import (
 	api "github.com/k8ssandra/k8ssandra-operator/apis/stargate/v1alpha1"
 )
 
-// +kubebuilder:rbac:groups=stargate.k8ssandra.io,namespace="k8ssandra",resources=stargates,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=stargate.k8ssandra.io,namespace="k8ssandra",resources=stargates/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=stargate.k8ssandra.io,namespace="k8ssandra",resources=stargates/finalizers,verbs=update
-// +kubebuilder:rbac:groups=cassandra.datastax.com,namespace="k8ssandra",resources=cassandradatacenters,verbs=get;list;watch
-// +kubebuilder:rbac:groups=apps,namespace="k8ssandra",resources=deployments,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=core,namespace="k8ssandra",resources=services,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=monitoring.coreos.com,namespace="k8ssandra",resources=servicemonitors,verbs=get;list;watch;create;update;patch;delete;deletecollection
+// +kubebuilder:rbac:groups=stargate.k8ssandra.io,namespace="k8ssandra-operator",resources=stargates,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=stargate.k8ssandra.io,namespace="k8ssandra-operator",resources=stargates/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=stargate.k8ssandra.io,namespace="k8ssandra-operator",resources=stargates/finalizers,verbs=update
+// +kubebuilder:rbac:groups=cassandra.datastax.com,namespace="k8ssandra-operator",resources=cassandradatacenters,verbs=get;list;watch
+// +kubebuilder:rbac:groups=apps,namespace="k8ssandra-operator",resources=deployments,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,namespace="k8ssandra-operator",resources=services,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=monitoring.coreos.com,namespace="k8ssandra-operator",resources=servicemonitors,verbs=get;list;watch;create;update;patch;delete;deletecollection
 
 // StargateReconciler reconciles a Stargate object
 type StargateReconciler struct {

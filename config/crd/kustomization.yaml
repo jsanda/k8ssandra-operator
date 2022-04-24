@@ -9,6 +9,7 @@ resources:
 - bases/reaper.k8ssandra.io_reapers.yaml
 - bases/medusa.k8ssandra.io_cassandrabackups.yaml
 - bases/medusa.k8ssandra.io_cassandrarestores.yaml
+- bases/velero.k8ssandra.io_velerobackups.yaml
 #+kubebuilder:scaffold:crdkustomizeresource
 
 patches:
