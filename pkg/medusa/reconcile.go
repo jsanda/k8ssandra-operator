@@ -20,7 +20,7 @@ import (
 const (
 	DefaultMedusaImageRepository = "adejanovski"
 	DefaultMedusaImageName       = "medusa"
-	DefaultMedusaVersion         = "remote-restore"
+	DefaultMedusaVersion         = "remote-restore-new"
 )
 
 var (
@@ -83,7 +83,6 @@ func CreateMedusaIni(kc *k8ss.K8ssandraCluster) string {
 	{{- if .Spec.Medusa.StorageProperties.MultiPartUploadThreshold }}
     multi_part_upload_threshold = {{ .Spec.Medusa.StorageProperties.MultiPartUploadThreshold }}
 	{{- end }}
-    resolve_ip_addresses = False
 
     [grpc]
     enabled = 1
@@ -251,13 +250,6 @@ func medusaEnvVars(medusaSpec *api.MedusaClusterTemplate, dcConfig *cassandra.Da
 						Name: CassandraUserSecretName(medusaSpec, dcConfig.Cluster),
 					},
 					Key: "password",
-				},
-			},
-		},
-		{Name: "POD_IP",
-			ValueFrom: &corev1.EnvVarSource{
-				FieldRef: &corev1.ObjectFieldSelector{
-					FieldPath: "status.podIP",
 				},
 			},
 		},
