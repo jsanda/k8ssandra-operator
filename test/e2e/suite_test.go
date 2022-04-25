@@ -189,13 +189,13 @@ func TestOperator(t *testing.T) {
 			additionalNamespaces: []string{"test-1", "test-2"},
 		}))
 	})
-	t.Run("CreateSingleMedusa", e2eTest(ctx, &e2eTestOpts{
+	t.Run("CreateSingleMedusaOld", e2eTest(ctx, &e2eTestOpts{
 		testFunc:                     createSingleMedusa,
 		fixture:                      framework.NewTestFixture("single-dc-medusa", controlPlane),
 		skipK8ssandraClusterCleanup:  false,
 		doCassandraDatacenterCleanup: false,
 	}))
-	t.Run("CreateMultiMedusa", e2eTest(ctx, &e2eTestOpts{
+	t.Run("CreateMultiMedusaOld", e2eTest(ctx, &e2eTestOpts{
 		testFunc:                     createMultiMedusa,
 		fixture:                      framework.NewTestFixture("multi-dc-medusa", controlPlane),
 		skipK8ssandraClusterCleanup:  false,
