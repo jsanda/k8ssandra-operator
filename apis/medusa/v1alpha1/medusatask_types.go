@@ -62,14 +62,19 @@ type MedusaTaskStatus struct {
 }
 
 type TaskResult struct {
+	// Name of the pod that ran the task. Always populated.
 	PodName string `json:"podName,omitempty"`
 
+	// Number of backups that were purged. Only populated for purge tasks.
 	NbBackupsPurged int `json:"nbBackupsPurged,omitempty"`
 
+	// Number of objects/files that were purged. Only populated for purge tasks.
 	NbObjectsPurged int `json:"nbObjectsPurged,omitempty"`
 
+	// Total size of purged files. Only populated for purge tasks.
 	TotalPurgedSize int `json:"totalPurgedSize,omitempty"`
 
+	// Number of objects that couldn't be deleted due to Medusa GC grace. Only populated for purge tasks.
 	TotalObjectsWithinGcGrace int `json:"totalObjectsWithinGcGrace,omitempty"`
 }
 

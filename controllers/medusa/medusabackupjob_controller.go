@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -207,16 +206,17 @@ func (r *MedusaBackupJobReconciler) getCassandraDatacenterPods(ctx context.Conte
 func (r *MedusaBackupJobReconciler) createMedusaBackup(ctx context.Context, backup *medusav1alpha1.MedusaBackupJob, logger logr.Logger) error {
 	// Create a prepare_restore medusa task to create the mapping files in each pod.
 	// Returns true if the reconcile needs to be requeued, false otherwise.
-	logger.Info("Creating MedusaBackup object", "MedusaBackup", backup.ObjectMeta.Name)
+	logger.Info("Creating MedusaBackup object", "MedusaBackup", backup.Name)
 	// Create backups that should exist but are missing
-	backupKey := types.NamespacedName{Namespace: backup.ObjectMeta.Namespace, Name: backup.ObjectMeta.Name}
+	backupKey := types.NamespacedName{Namespace: backup.ObjectMeta.Namespace, Name: backup.Name}
 	backupResource := &medusav1alpha1.MedusaBackup{}
 	if err := r.Get(ctx, backupKey, backupResource); err != nil {
 		if errors.IsNotFound(err) {
 			// Backup doesn't exist, create it
 			startTime := backup.Status.StartTime
 			finishTime := metav1.Now()
-			backupResource = &medusav1alpha1.MedusaBackup{
+			logger.Info("Creating Cassandra Backup", "Backup", backup.Name)
+			backupResource := &medusav1alpha1.MedusaBackup{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      backup.ObjectMeta.Name,
 					Namespace: backup.ObjectMeta.Namespace,
@@ -227,39 +227,17 @@ func (r *MedusaBackupJobReconciler) createMedusaBackup(ctx context.Context, back
 				},
 			}
 			if err := r.Create(ctx, backupResource); err != nil {
-				logger.Error(err, "failed to create backup", "MedusaBackup", backup.ObjectMeta.Name)
+				logger.Error(err, "failed to create backup", "MedusaBackup", backup.Name)
 				return err
 			} else {
 				logger.Info("Created Medusa Backup", "Backup", backupResource)
-				// Read the backup again. Multiple attempts may be necessary due to caches, which is why the Get operation is in a loop.
-				backupInstance := &medusav1alpha1.MedusaBackup{}
-				found := false
-				for stay, timeout := true, time.After(10*time.Second); stay; {
-					err := r.Get(ctx, backupKey, backupInstance)
-					if err == nil {
-						stay = false
-						found = true
-					} else {
-						time.Sleep(time.Second)
-						select {
-						case <-timeout:
-							stay = false
-						default:
-						}
-					}
-				}
-				if !found {
-					logger.Error(err, "failed to read backup", "MedusaBackup", backup.ObjectMeta.Name)
-					return err
-				}
-				backupPatch := client.MergeFrom(backupInstance.DeepCopy())
-				backupInstance.Status.StartTime = startTime
-				backupInstance.Status.FinishTime = finishTime
-				if err := r.Status().Patch(ctx, backupInstance, backupPatch); err != nil {
+				backupPatch := client.MergeFrom(backupResource.DeepCopy())
+				backupResource.Status.StartTime = startTime
+				backupResource.Status.FinishTime = finishTime
+				if err := r.Status().Patch(ctx, backupResource, backupPatch); err != nil {
 					logger.Error(err, "failed to patch status with finish time")
 					return err
 				}
-
 			}
 		}
 	}

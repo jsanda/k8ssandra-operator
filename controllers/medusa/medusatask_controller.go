@@ -294,32 +294,9 @@ func (r *MedusaTaskReconciler) syncOperation(ctx context.Context, task *medusav1
 				if err := r.Get(ctx, backupKey, backupResource); err != nil {
 					if errors.IsNotFound(err) {
 						// Backup doesn't exist, create it
-						logger.Info("Creating Cassandra Backup", "Backup", backup.BackupName)
-						startTime := metav1.Unix(backup.StartTime, 0)
-						finishTime := metav1.Unix(backup.FinishTime, 0)
-						backupResource = &medusav1alpha1.MedusaBackup{
-							ObjectMeta: metav1.ObjectMeta{
-								Name:      backup.BackupName,
-								Namespace: task.Namespace,
-							},
-							Spec: medusav1alpha1.MedusaBackupSpec{
-								CassandraDatacenter: task.Spec.CassandraDatacenter,
-								Type:                shared.BackupType(backup.BackupType),
-							},
-						}
-						if err := r.Create(ctx, backupResource); err != nil {
-							logger.Error(err, "failed to create backup", "MedusaBackup", backup.BackupName)
-							return ctrl.Result{}, err
-						} else {
-							logger.Info("Created Medusa Backup", "Backup", backupResource)
-							backupPatch := client.MergeFrom(backupResource.DeepCopy())
-							backupResource.Status.StartTime = startTime
-							backupResource.Status.FinishTime = finishTime
-							if err := r.Status().Patch(ctx, backupResource, backupPatch); err != nil {
-								logger.Error(err, "failed to patch status with finish time")
-								return ctrl.Result{}, err
-							}
-
+						shouldReturn, ctrlResult, err := createMedusaBackup(logger, backup, task.Spec.CassandraDatacenter, task.Namespace, r, ctx)
+						if shouldReturn {
+							return ctrlResult, err
 						}
 					} else {
 						logger.Error(err, "failed to get backup", "Backup", backup.BackupName)
@@ -361,6 +338,37 @@ func (r *MedusaTaskReconciler) syncOperation(ctx context.Context, task *medusav1
 	}
 
 	return ctrl.Result{RequeueAfter: r.DefaultDelay}, nil
+}
+
+func createMedusaBackup(logger logr.Logger, backup *medusa.BackupSummary, datacenter, namespace string, r *MedusaTaskReconciler, ctx context.Context) (bool, reconcile.Result, error) {
+	logger.Info("Creating Cassandra Backup", "Backup", backup.BackupName)
+	startTime := metav1.Unix(backup.StartTime, 0)
+	finishTime := metav1.Unix(backup.FinishTime, 0)
+	backupResource := &medusav1alpha1.MedusaBackup{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      backup.BackupName,
+			Namespace: namespace,
+		},
+		Spec: medusav1alpha1.MedusaBackupSpec{
+			CassandraDatacenter: datacenter,
+			Type:                shared.BackupType(backup.BackupType),
+		},
+	}
+	if err := r.Create(ctx, backupResource); err != nil {
+		logger.Error(err, "failed to create backup", "MedusaBackup", backup.BackupName)
+		return true, ctrl.Result{}, err
+	} else {
+		logger.Info("Created Medusa Backup", "Backup", backupResource)
+		backupPatch := client.MergeFrom(backupResource.DeepCopy())
+		backupResource.Status.StartTime = startTime
+		backupResource.Status.FinishTime = finishTime
+		if err := r.Status().Patch(ctx, backupResource, backupPatch); err != nil {
+			logger.Error(err, "failed to patch status with finish time")
+			return true, ctrl.Result{}, err
+		}
+
+	}
+	return false, reconcile.Result{}, nil
 }
 
 // If the task operation was a purge, we may need to schedule a sync operation next

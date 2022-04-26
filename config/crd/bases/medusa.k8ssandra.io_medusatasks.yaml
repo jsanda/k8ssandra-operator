@@ -69,14 +69,23 @@ spec:
                 items:
                   properties:
                     nbBackupsPurged:
+                      description: Number of backups that were purged. Only populated
+                        for purge tasks.
                       type: integer
                     nbObjectsPurged:
+                      description: Number of objects/files that were purged. Only
+                        populated for purge tasks.
                       type: integer
                     podName:
+                      description: Name of the pod that ran the task. Always populated.
                       type: string
                     totalObjectsWithinGcGrace:
+                      description: Number of objects that couldn't be deleted due
+                        to Medusa GC grace. Only populated for purge tasks.
                       type: integer
                     totalPurgedSize:
+                      description: Total size of purged files. Only populated for
+                        purge tasks.
                       type: integer
                   type: object
                 type: array
