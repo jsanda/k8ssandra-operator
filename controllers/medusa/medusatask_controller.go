@@ -217,6 +217,79 @@ func (r *MedusaTaskReconciler) purgeOperation(ctx context.Context, task *medusav
 func (r *MedusaTaskReconciler) prepareRestoreOperation(ctx context.Context, task *medusav1alpha1.MedusaTask, pods []corev1.Pod, logger logr.Logger) (reconcile.Result, error) {
 	logger.Info("Starting prepare restore operations", "cassdc", task.Spec.CassandraDatacenter)
 
+	op := func(ctx context.Context, task *medusav1alpha1.MedusaTask, pod corev1.Pod) error {
+		return prepareRestore(ctx, task, &pod, r.ClientFactory)
+	}
+
+	return r.executePodOperations(ctx, task, pods, "prepare restore", op, logger)
+
+	//// Set the start time and add the pods to the in progress list
+	//patch := client.MergeFrom(task.DeepCopy())
+	//task.Status.StartTime = metav1.Now()
+	//for _, pod := range pods {
+	//	task.Status.InProgress = append(task.Status.InProgress, pod.Name)
+	//}
+	//
+	//if err := r.Status().Patch(ctx, task, patch); err != nil {
+	//	logger.Error(err, "Failed to patch status")
+	//	// We received a stale object, requeue for next processing
+	//	return ctrl.Result{}, err
+	//}
+	//
+	//// Invoke the purge operation on all pods, in the background
+	//go func() {
+	//	wg := sync.WaitGroup{}
+	//
+	//	// Mutex to prevent concurrent updates to the Status object
+	//	backupMutex := sync.Mutex{}
+	//	patch := client.MergeFrom(task.DeepCopy())
+	//
+	//	for _, p := range pods {
+	//		pod := p
+	//		wg.Add(1)
+	//		go func() {
+	//			logger.Info("starting prepare restore", "CassandraPod", pod.Name)
+	//			succeeded := false
+	//			err := prepareRestore(ctx, task, &pod, r.ClientFactory)
+	//			if err == nil {
+	//				logger.Info("finished prepare restore", "CassandraPod", pod.Name)
+	//				succeeded = true
+	//			} else {
+	//				logger.Error(err, "prepare restore failed", "CassandraPod", pod.Name)
+	//			}
+	//			backupMutex.Lock()
+	//			defer backupMutex.Unlock()
+	//			defer wg.Done()
+	//			task.Status.InProgress = utils.RemoveValue(task.Status.InProgress, pod.Name)
+	//			if succeeded {
+	//				operationResponse := medusav1alpha1.TaskResult{
+	//					PodName: pod.Name,
+	//				}
+	//				task.Status.Finished = append(task.Status.Finished, operationResponse)
+	//			} else {
+	//				task.Status.Failed = append(task.Status.Failed, pod.Name)
+	//			}
+	//		}()
+	//	}
+	//	wg.Wait()
+	//	logger.Info("finished task operations")
+	//	if err := r.Status().Patch(context.Background(), task, patch); err != nil {
+	//		logger.Error(err, "failed to patch status", "MedusaTask", fmt.Sprint(task))
+	//	}
+	//}()
+	//
+	//return ctrl.Result{RequeueAfter: r.DefaultDelay}, nil
+}
+
+type podOperation func(ctx context.Context, task *medusav1alpha1.MedusaTask, pod corev1.Pod) error
+
+func (r *MedusaTaskReconciler) executePodOperations(
+	ctx context.Context,
+	task *medusav1alpha1.MedusaTask,
+	pods []corev1.Pod,
+	operationName string,
+	operation podOperation,
+	logger logr.Logger) (reconcile.Result, error) {
 	// Set the start time and add the pods to the in progress list
 	patch := client.MergeFrom(task.DeepCopy())
 	task.Status.StartTime = metav1.Now()
@@ -230,29 +303,30 @@ func (r *MedusaTaskReconciler) prepareRestoreOperation(ctx context.Context, task
 		return ctrl.Result{}, err
 	}
 
-	// Invoke the purge operation on all pods, in the background
 	go func() {
 		wg := sync.WaitGroup{}
 
 		// Mutex to prevent concurrent updates to the Status object
-		backupMutex := sync.Mutex{}
+		mutex := sync.Mutex{}
 		patch := client.MergeFrom(task.DeepCopy())
+
+		opLogger := logger.WithValues("Operation", operationName)
 
 		for _, p := range pods {
 			pod := p
 			wg.Add(1)
 			go func() {
-				logger.Info("starting prepare restore", "CassandraPod", pod.Name)
+				opLogger.Info("starting pod operation", "CassandraPod", pod.Name)
 				succeeded := false
-				err := prepareRestore(ctx, task, &pod, r.ClientFactory)
+				err := operation(ctx, task, p)
 				if err == nil {
-					logger.Info("finished prepare restore", "CassandraPod", pod.Name)
+					logger.Info("finished pod operation", "CassandraPod", pod.Name)
 					succeeded = true
 				} else {
-					logger.Error(err, "prepare restore failed", "CassandraPod", pod.Name)
+					logger.Error(err, "pod operation failed", "CassandraPod", pod.Name)
 				}
-				backupMutex.Lock()
-				defer backupMutex.Unlock()
+				mutex.Lock()
+				defer mutex.Unlock()
 				defer wg.Done()
 				task.Status.InProgress = utils.RemoveValue(task.Status.InProgress, pod.Name)
 				if succeeded {
@@ -264,11 +338,11 @@ func (r *MedusaTaskReconciler) prepareRestoreOperation(ctx context.Context, task
 					task.Status.Failed = append(task.Status.Failed, pod.Name)
 				}
 			}()
-		}
-		wg.Wait()
-		logger.Info("finished task operations")
-		if err := r.Status().Patch(context.Background(), task, patch); err != nil {
-			logger.Error(err, "failed to patch status", "MedusaTask", fmt.Sprint(task))
+			wg.Wait()
+			logger.Info("finished task operations")
+			if err := r.Status().Patch(context.Background(), task, patch); err != nil {
+				logger.Error(err, "failed to patch status", "MedusaTask", fmt.Sprint(task))
+			}
 		}
 	}()
 
