@@ -46,8 +46,6 @@ type MedusaBackupJobStatus struct {
 	Finished []string `json:"finished,omitempty"`
 
 	Failed []string `json:"failed,omitempty"`
-
-	BackupSynced bool `json:"backupSynced,omitempty"`
 }
 
 //+kubebuilder:object:root=true

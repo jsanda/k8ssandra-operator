@@ -159,7 +159,7 @@ func testMedusaTasks(t *testing.T, ctx context.Context, f *framework.Framework, 
 			return false
 		}
 
-		return !updated.Status.FinishTime.IsZero() && updated.Status.Finished[0].NbBackupsPurged == 2
+		return !updated.Status.FinishTime.IsZero() && updated.Status.Finished[0].NbBackupsPurged == 2 && len(updated.Status.Finished) == 3
 	}, timeout, interval)
 
 	// After a purge, a sync should get created

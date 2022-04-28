@@ -77,7 +77,7 @@ func (r *MedusaBackupJobReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{RequeueAfter: r.DefaultDelay}, err
 	}
 
-	pods, err := r.getCassandraDatacenterPods(ctx, cassdc, logger)
+	pods, err := medusa.GetCassandraDatacenterPods(ctx, cassdc, r, logger)
 	if err != nil {
 		logger.Error(err, "Failed to get datacenter pods")
 		return ctrl.Result{RequeueAfter: r.DefaultDelay}, err
@@ -136,7 +136,6 @@ func (r *MedusaBackupJobReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	patch := client.MergeFromWithOptions(backup.DeepCopy(), client.MergeFromWithOptimisticLock{})
 
 	backup.Status.StartTime = metav1.Now()
-	backup.Status.BackupSynced = false
 	for _, pod := range pods {
 		backup.Status.InProgress = append(backup.Status.InProgress, pod.Name)
 	}
@@ -189,25 +188,9 @@ func (r *MedusaBackupJobReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	return ctrl.Result{RequeueAfter: r.DefaultDelay}, nil
 }
 
-func (r *MedusaBackupJobReconciler) getCassandraDatacenterPods(ctx context.Context, cassdc *cassdcapi.CassandraDatacenter, logger logr.Logger) ([]corev1.Pod, error) {
-	podList := &corev1.PodList{}
-	labels := client.MatchingLabels{cassdcapi.DatacenterLabel: cassdc.Name}
-	if err := r.List(ctx, podList, labels); err != nil {
-		logger.Error(err, "failed to get pods for cassandradatacenter", "CassandraDatacenter", cassdc.Name)
-		return nil, err
-	}
-
-	pods := make([]corev1.Pod, 0)
-	pods = append(pods, podList.Items...)
-
-	return pods, nil
-}
-
 func (r *MedusaBackupJobReconciler) createMedusaBackup(ctx context.Context, backup *medusav1alpha1.MedusaBackupJob, logger logr.Logger) error {
-	// Create a prepare_restore medusa task to create the mapping files in each pod.
-	// Returns true if the reconcile needs to be requeued, false otherwise.
+	// Create a MedusaBackup object after a successful MedusaBackupJob execution.
 	logger.Info("Creating MedusaBackup object", "MedusaBackup", backup.Name)
-	// Create backups that should exist but are missing
 	backupKey := types.NamespacedName{Namespace: backup.ObjectMeta.Namespace, Name: backup.Name}
 	backupResource := &medusav1alpha1.MedusaBackup{}
 	if err := r.Get(ctx, backupKey, backupResource); err != nil {

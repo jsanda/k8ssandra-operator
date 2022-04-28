@@ -51,8 +51,6 @@ spec:
           status:
             description: MedusaBackupJobStatus defines the observed state of MedusaBackupJob
             properties:
-              backupSynced:
-                type: boolean
               failed:
                 items:
                   type: string

@@ -57,8 +57,6 @@ type MedusaTaskReconciler struct {
 func (r *MedusaTaskReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx).WithValues("MedusaTask", req.NamespacedName)
 
-	logger.Info("Starting reconciliation for MedusaTask")
-
 	// Fetch the MedusaTask instance
 	instance := &medusav1alpha1.MedusaTask{}
 	err := r.Get(ctx, req.NamespacedName, instance)
@@ -71,6 +69,7 @@ func (r *MedusaTaskReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	task := instance.DeepCopy()
+	logger.Info("Starting reconciliation for MedusaTask", "cassdc", task.Spec.CassandraDatacenter)
 
 	// If the task is already finished, there is nothing to do.
 	if taskFinished(task) {
@@ -88,6 +87,14 @@ func (r *MedusaTaskReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 		logger.Info("task complete")
 
+		// Schedule a sync if the task is a purge
+		if task.Spec.Operation == medusav1alpha1.OperationTypePurge {
+			if err := r.scheduleSyncForPurge(task); err != nil {
+				logger.Error(err, "failed to schedule sync for purge")
+				return ctrl.Result{}, err
+			}
+		}
+
 		// Set the finish time
 		// Note that the time here is not accurate, but that is ok. For now we are just
 		// using it as a completion marker.
@@ -96,11 +103,6 @@ func (r *MedusaTaskReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if err := r.Status().Patch(ctx, task, patch); err != nil {
 			logger.Error(err, "failed to patch status with finish time")
 			return ctrl.Result{}, err
-		}
-
-		// Schedule a sync if the task is a purge
-		if task.Spec.Operation == medusav1alpha1.OperationTypePurge {
-			r.scheduleSyncForPurge(task)
 		}
 
 		return ctrl.Result{Requeue: false}, nil
@@ -115,7 +117,7 @@ func (r *MedusaTaskReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, err
 	}
 
-	pods, err := r.getCassandraDatacenterPods(ctx, cassdc, logger)
+	pods, err := medusa.GetCassandraDatacenterPods(ctx, cassdc, r, logger)
 	if err != nil {
 		logger.Error(err, "Failed to get datacenter pods")
 		return ctrl.Result{}, err
@@ -132,19 +134,19 @@ func (r *MedusaTaskReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 }
 
-func (r *MedusaTaskReconciler) getCassandraDatacenterPods(ctx context.Context, cassdc *cassdcapi.CassandraDatacenter, logger logr.Logger) ([]corev1.Pod, error) {
-	podList := &corev1.PodList{}
-	labels := client.MatchingLabels{cassdcapi.DatacenterLabel: cassdc.Name}
-	if err := r.List(ctx, podList, labels); err != nil {
-		logger.Error(err, "failed to get pods for cassandradatacenter", "CassandraDatacenter", cassdc.Name)
-		return nil, err
-	}
-
-	pods := make([]corev1.Pod, 0)
-	pods = append(pods, podList.Items...)
-
-	return pods, nil
-}
+//func (r *MedusaTaskReconciler) getCassandraDatacenterPods(ctx context.Context, cassdc *cassdcapi.CassandraDatacenter, logger logr.Logger) ([]corev1.Pod, error) {
+//	podList := &corev1.PodList{}
+//	labels := client.MatchingLabels{cassdcapi.DatacenterLabel: cassdc.Name}
+//	if err := r.List(ctx, podList, labels); err != nil {
+//		logger.Error(err, "failed to get pods for cassandradatacenter", "CassandraDatacenter", cassdc.Name)
+//		return nil, err
+//	}
+//
+//	pods := make([]corev1.Pod, 0)
+//	pods = append(pods, podList.Items...)
+//
+//	return pods, nil
+//}
 
 func (r *MedusaTaskReconciler) purgeOperation(ctx context.Context, task *medusav1alpha1.MedusaTask, pods []corev1.Pod, logger logr.Logger) (reconcile.Result, error) {
 	logger.Info("Starting purge operations")
@@ -213,7 +215,7 @@ func (r *MedusaTaskReconciler) purgeOperation(ctx context.Context, task *medusav
 }
 
 func (r *MedusaTaskReconciler) prepareRestoreOperation(ctx context.Context, task *medusav1alpha1.MedusaTask, pods []corev1.Pod, logger logr.Logger) (reconcile.Result, error) {
-	logger.Info("Starting prepare restore operations")
+	logger.Info("Starting prepare restore operations", "cassdc", task.Spec.CassandraDatacenter)
 
 	// Set the start time and add the pods to the in progress list
 	patch := client.MergeFrom(task.DeepCopy())
