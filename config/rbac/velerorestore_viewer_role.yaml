@@ -1,0 +1,20 @@
+# permissions for end users to view velerorestores.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: velerorestore-viewer-role
+rules:
+- apiGroups:
+  - velero.k8ssandra.io
+  resources:
+  - velerorestores
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - velero.k8ssandra.io
+  resources:
+  - velerorestores/status
+  verbs:
+  - get

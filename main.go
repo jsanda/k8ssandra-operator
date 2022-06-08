@@ -20,9 +20,10 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	velerocontrollers "github.com/k8ssandra/k8ssandra-operator/controllers/velero"
 	"os"
 	"strings"
+
+	velerocontrollers "github.com/k8ssandra/k8ssandra-operator/controllers/velero"
 
 	cassdcapi "github.com/k8ssandra/cass-operator/apis/cassandra/v1beta1"
 	cassctl "github.com/k8ssandra/cass-operator/apis/control/v1alpha1"
@@ -48,6 +49,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
+	velerovapi "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
+
 	configapi "github.com/k8ssandra/k8ssandra-operator/apis/config/v1beta1"
 	k8ssandraiov1alpha1 "github.com/k8ssandra/k8ssandra-operator/apis/k8ssandra/v1alpha1"
 	medusav1alpha1 "github.com/k8ssandra/k8ssandra-operator/apis/medusa/v1alpha1"
@@ -55,13 +58,13 @@ import (
 	replicationapi "github.com/k8ssandra/k8ssandra-operator/apis/replication/v1alpha1"
 	stargateapi "github.com/k8ssandra/k8ssandra-operator/apis/stargate/v1alpha1"
 	velerok8ssandraapi "github.com/k8ssandra/k8ssandra-operator/apis/velero/v1alpha1"
+	velerov1alpha1 "github.com/k8ssandra/k8ssandra-operator/apis/velero/v1alpha1"
 	configctrl "github.com/k8ssandra/k8ssandra-operator/controllers/config"
 	k8ssandractrl "github.com/k8ssandra/k8ssandra-operator/controllers/k8ssandra"
 	medusactrl "github.com/k8ssandra/k8ssandra-operator/controllers/medusa"
 	reaperctrl "github.com/k8ssandra/k8ssandra-operator/controllers/reaper"
 	replicationctrl "github.com/k8ssandra/k8ssandra-operator/controllers/replication"
 	stargatectrl "github.com/k8ssandra/k8ssandra-operator/controllers/stargate"
-	velerovapi "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -84,6 +87,7 @@ func init() {
 	utilruntime.Must(medusav1alpha1.AddToScheme(scheme))
 	utilruntime.Must(velerok8ssandraapi.AddToScheme(scheme))
 	utilruntime.Must(velerovapi.AddToScheme(scheme))
+	utilruntime.Must(velerov1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -199,6 +203,15 @@ func main() {
 			setupLog.Error(err, "unable to create controller", "controller", "VeleroBackup")
 			os.Exit(1)
 		}
+
+		if err = (&velerocontrollers.VeleroRestoreReconciler{
+			Client:      mgr.GetClient(),
+			Scheme:      mgr.GetScheme(),
+			ClientCache: clientCache,
+		}).SetupWithManager(mgr, additionalClusters); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "VeleroBackup")
+			os.Exit(1)
+		}
 	}
 
 	if err = (&stargatectrl.StargateReconciler{
@@ -239,6 +252,7 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "CassandraRestore")
 		os.Exit(1)
 	}
+
 	// +kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {

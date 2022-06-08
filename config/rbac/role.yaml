@@ -115,6 +115,7 @@ rules:
   resources:
   - persistentvolumeclaims
   verbs:
+  - delete
   - get
   - list
   - watch
@@ -162,6 +163,14 @@ rules:
   - list
   - patch
   - update
+  - watch
+- apiGroups:
+  - k8ssandra.io
+  resources:
+  - k8ssandraclusters
+  verbs:
+  - get
+  - list
   - watch
 - apiGroups:
   - k8ssandra.io
@@ -319,6 +328,16 @@ rules:
   - list
   - watch
 - apiGroups:
+  - velero.io
+  resources:
+  - restores
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - watch
+- apiGroups:
   - velero.k8ssandra.io
   resources:
   - velerobackups
@@ -340,6 +359,32 @@ rules:
   - velero.k8ssandra.io
   resources:
   - velerobackups/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - velero.k8ssandra.io
+  resources:
+  - velerorestores
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - velero.k8ssandra.io
+  resources:
+  - velerorestores/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - velero.k8ssandra.io
+  resources:
+  - velerorestores/status
   verbs:
   - get
   - patch

@@ -1,0 +1,24 @@
+# permissions for end users to edit velerorestores.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: velerorestore-editor-role
+rules:
+- apiGroups:
+  - velero.k8ssandra.io
+  resources:
+  - velerorestores
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - velero.k8ssandra.io
+  resources:
+  - velerorestores/status
+  verbs:
+  - get

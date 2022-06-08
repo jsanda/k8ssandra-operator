@@ -18,6 +18,7 @@ package velero
 
 import (
 	"context"
+	"fmt"
 	"github.com/go-logr/logr"
 	"github.com/k8ssandra/k8ssandra-operator/pkg/clientcache"
 	"github.com/k8ssandra/k8ssandra-operator/pkg/labels"
@@ -25,7 +26,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -95,8 +95,12 @@ func (r *VeleroBackupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		backup.Status.StartTime = metav1.Now()
 	}
 
+	if !backup.Status.FinishTime.IsZero() {
+		return ctrl.Result{}, nil
+	}
+
 	if backup.Status.Datacenters == nil {
-		backup.Status.Datacenters = make(map[string]api.DatacenterStatus)
+		backup.Status.Datacenters = make(map[string]api.DatacenterBackupStatus)
 	}
 
 	kc := &k8ssandraapi.K8ssandraCluster{}
@@ -106,11 +110,18 @@ func (r *VeleroBackupReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 	kc = kc.DeepCopy()
 
-	if recResult := r.checkPersistentVolumes(ctx, kc); recResult.Completed() {
+	logger = logger.WithValues("K8ssandraCluster", kcKey)
+
+	backupState, err := r.getBackupState(ctx, backup, kc, logger)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to load backup state: %v", err)
+	}
+
+	if recResult := r.checkPersistentVolumes(ctx, backup, kc, backupState, logger); recResult.Completed() {
 		return recResult.Output()
 	}
 
-	return r.reconcileNativeVeleroBackups(ctx, backup, kc, logger).Output()
+	return r.checkBackups(ctx, backup, kc, backupState, logger).Output()
 }
 
 func (r *VeleroBackupReconciler) updateStatus(ctx context.Context, kBackup *api.VeleroBackup, logger logr.Logger) {
@@ -119,11 +130,28 @@ func (r *VeleroBackupReconciler) updateStatus(ctx context.Context, kBackup *api.
 	}
 }
 
-// checkPersistentVolumes fetches all PersistentVolumes belonging to Cassandra pods in the
-// K8ssandraCluster and ensures that they have the datacenter labels as defined by
-// the CassandraDatacenter.GetDatacenterLabels method.
-func (r *VeleroBackupReconciler) checkPersistentVolumes(ctx context.Context, kc *k8ssandraapi.K8ssandraCluster) result.ReconcileResult {
-	for _, dcTemplate := range kc.Spec.Cassandra.Datacenters {
+func (r *VeleroBackupReconciler) getBackupState(
+	ctx context.Context,
+	backup *api.VeleroBackup,
+	kc *k8ssandraapi.K8ssandraCluster,
+	logger logr.Logger) (map[string]datacenterBackupState, error) {
+
+	logger.Info("Initializing backup state")
+
+	backupState := make(map[string]datacenterBackupState)
+	datacenters := make([]string, 0)
+
+	if len(backup.Spec.Datacenters) == 0 {
+		for _, dcTemplate := range kc.Spec.Cassandra.Datacenters {
+			datacenters = append(datacenters, dcTemplate.Meta.Name)
+		}
+	} else {
+		datacenters = backup.Spec.Datacenters
+	}
+
+	for _, dcName := range datacenters {
+		i := findDatacenterTemplate(dcName, kc)
+		dcTemplate := kc.Spec.Cassandra.Datacenters[i]
 		dcKey := client.ObjectKey{Namespace: kc.Namespace, Name: dcTemplate.Meta.Name}
 		if dcTemplate.Meta.Namespace != "" {
 			dcKey.Namespace = dcTemplate.Meta.Namespace
@@ -131,13 +159,64 @@ func (r *VeleroBackupReconciler) checkPersistentVolumes(ctx context.Context, kc 
 
 		remoteClient, err := r.ClientCache.GetRemoteClient(dcTemplate.K8sContext)
 		if err != nil {
-			return result.Error(err)
+			return nil, fmt.Errorf("failed to get remote client: K8ssandraCluster (%s), DC (%s), K8sContext (%s): %v",
+				utils.GetKey(kc), dcName, dcTemplate.K8sContext, err)
 		}
 
 		dc := &cassdcapi.CassandraDatacenter{}
 		if err := remoteClient.Get(ctx, dcKey, dc); err != nil {
-			return result.Error(err)
+			return nil, fmt.Errorf("failed to get CassandraDatacenter: K8ssandraCluster (%s), DC (%s), K8sContext (%s): %v",
+				utils.GetKey(kc), dcName, dcTemplate.K8sContext, err)
 		}
+
+		vBackup := &velerovapi.Backup{}
+		vBackupKey := client.ObjectKey{Namespace: dcKey.Namespace, Name: backup.Name}
+
+		if err := remoteClient.Get(ctx, vBackupKey, vBackup); err != nil {
+			if errors.IsNotFound(err) {
+				vBackup = nil
+			} else {
+				return nil, fmt.Errorf("failed to get Velero Backup: K8ssandraCluster (%s), DC (%s), K8sContext (%s): %v",
+					utils.GetKey(kc), dcName, dcTemplate.K8sContext, err)
+			}
+		}
+
+		backupState[dcName] = datacenterBackupState{
+			idx:          i,
+			dcKey:        dcKey,
+			dc:           dc,
+			remoteClient: remoteClient,
+			vBackup:      vBackup,
+		}
+	}
+
+	return backupState, nil
+}
+
+type datacenterBackupState struct {
+	idx          int
+	dcKey        client.ObjectKey
+	dc           *cassdcapi.CassandraDatacenter
+	remoteClient client.Client
+	vBackup      *velerovapi.Backup
+}
+
+// checkPersistentVolumes fetches all PersistentVolumes belonging to Cassandra pods in the
+// K8ssandraCluster and ensures that they have the datacenter labels as defined by
+// the CassandraDatacenter.GetDatacenterLabels method.
+func (r *VeleroBackupReconciler) checkPersistentVolumes(
+	ctx context.Context,
+	backup *api.VeleroBackup,
+	kc *k8ssandraapi.K8ssandraCluster,
+	backupState map[string]datacenterBackupState,
+	logger logr.Logger) result.ReconcileResult {
+
+	logger.Info("Checking PersistentVolumes")
+
+	for _, dcState := range backupState {
+		dcKey := dcState.dcKey
+		dc := dcState.dc
+		remoteClient := dcState.remoteClient
 
 		pvcList := &corev1.PersistentVolumeClaimList{}
 		if err := r.List(ctx, pvcList, client.InNamespace(dcKey.Namespace), client.MatchingLabels(dc.GetDatacenterLabels())); err != nil {
@@ -156,6 +235,8 @@ func (r *VeleroBackupReconciler) checkPersistentVolumes(ctx context.Context, kc 
 				continue
 			}
 
+			logger.Info("Updating labels", "DC", dcKey.Name)
+
 			patch := client.MergeFromWithOptions(pv.DeepCopy())
 			for k, v := range dc.GetDatacenterLabels() {
 				labels.AddLabel(pv, k, v)
@@ -165,93 +246,75 @@ func (r *VeleroBackupReconciler) checkPersistentVolumes(ctx context.Context, kc 
 			}
 		}
 	}
+
 	return result.Continue()
 }
 
-func (r *VeleroBackupReconciler) reconcileNativeVeleroBackups(
+// checkBackups checks each CassandraDatacenter and creates a Velero Backup object if one
+// doesn't already exist. This method requeues the reconciliation request until the Backup
+// for each CassandraDatacenter has finished. Note that finished can mean either success or
+// failure. Note that this method assumes all PersistentVolumes already have datacenter
+// labels.
+func (r *VeleroBackupReconciler) checkBackups(
 	ctx context.Context,
-	kBackup *api.VeleroBackup,
+	backup *api.VeleroBackup,
 	kc *k8ssandraapi.K8ssandraCluster,
+	backupState map[string]datacenterBackupState,
 	logger logr.Logger) result.ReconcileResult {
 
-	errs := make([]error, 0)
+	for _, dcState := range backupState {
+		dcKey := dcState.dcKey
+		dc := dcState.dc
+		remoteClient := dcState.remoteClient
+		dcStatus := backup.Status.Datacenters[dcKey.Name]
 
-	for _, dcTemplate := range kc.Spec.Cassandra.Datacenters {
-		dcKey := client.ObjectKey{Namespace: kc.Namespace, Name: dcTemplate.Meta.Name}
-		if dcTemplate.Meta.Namespace != "" {
-			dcKey.Namespace = dcTemplate.Meta.Namespace
-		}
-
-		logger := logger.WithValues("DC", dcKey.Name)
-		remoteClient, err := r.ClientCache.GetRemoteClient(dcTemplate.K8sContext)
-		if err != nil {
-			return result.Error(err)
-		}
-
-		dc := &cassdcapi.CassandraDatacenter{}
-		if err := remoteClient.Get(ctx, dcKey, dc); err != nil {
-			return result.Error(err)
-		}
-
-		vBackup := &velerovapi.Backup{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace: dcKey.Namespace,
-				Name:      kBackup.Name,
-			},
-			Spec: velerovapi.BackupSpec{
-				IncludedNamespaces: []string{dcKey.Namespace},
-				LabelSelector:      metav1.SetAsLabelSelector(dc.GetDatacenterLabels()),
-				IncludedResources: []string{
-					"PersistentVolumeClaims",
-					"PersistentVolumes",
+		if dcState.vBackup == nil {
+			dcState.vBackup = &velerovapi.Backup{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: dcKey.Namespace,
+					Name:      backup.Name,
 				},
-			},
-		}
-		labels.SetManagedBy(vBackup, utils.GetKey(kc))
-		vBackupKey := utils.GetKey(vBackup)
+				Spec: velerovapi.BackupSpec{
+					IncludedNamespaces: []string{dcKey.Namespace},
+					LabelSelector:      metav1.SetAsLabelSelector(dc.GetDatacenterLabels()),
+					IncludedResources: []string{
+						"PersistentVolumeClaims",
+						"PersistentVolumes",
+					},
+				},
+			}
+			labels.SetManagedBy(dcState.vBackup, utils.GetKey(kc))
+			vBackupKey := utils.GetKey(dcState.vBackup)
 
-		dcStatus := kBackup.Status.Datacenters[dcKey.Name]
-		if dcStatus.Phase == "" {
-			if err = remoteClient.Create(ctx, vBackup); err == nil {
+			if err := remoteClient.Create(ctx, dcState.vBackup); err == nil {
 				logger.Info("Created Velero backup", "Backup", vBackupKey)
-				dcStatus.Phase = api.InProgress
+				dcStatus.Phase = api.BackupPhaseInProgress
 			} else {
 				if errors.IsAlreadyExists(err) {
-					dcStatus.Phase = api.InProgress
+					dcStatus.Phase = api.BackupPhaseInProgress
 				}
-
-				dcStatus.Phase = api.CreateFailed
-				errs = append(errs, err)
+				dcStatus.Phase = api.BackupPhaseCreateFailed
+				return result.Error(fmt.Errorf("failed to create Velero Backup (%s) for CassandraDatacenter (%s) in K8sssandraCluster (%s)",
+					vBackupKey, dcKey, utils.GetKey(kc)))
 			}
 		}
 
-		if dcStatus.Phase == api.InProgress {
-			if err = r.Get(ctx, vBackupKey, vBackup); err == nil {
-				if vBackup.Status.CompletionTimestamp != nil && !vBackup.Status.CompletionTimestamp.IsZero() {
-					if vBackup.Status.Phase == velerovapi.BackupPhaseCompleted {
-						dcStatus.Phase = api.Completed
-					} else {
-						dcStatus.Phase = api.Failed
-					}
-				}
-			} else {
-				if errors.IsNotFound(err) {
-					dcStatus.Phase = api.Deleted
+		if dcStatus.Phase == api.BackupPhaseInProgress {
+			if dcState.vBackup.Status.CompletionTimestamp != nil && !dcState.vBackup.Status.CompletionTimestamp.IsZero() {
+				if dcState.vBackup.Status.Phase == velerovapi.BackupPhaseCompleted {
+					dcStatus.Phase = api.BackupPhaseCompleted
 				} else {
-					errs = append(errs, err)
+					dcStatus.Phase = api.BackupPhaseFailed
 				}
 			}
 		}
 
-		kBackup.Status.Datacenters[dcKey.Name] = dcStatus
+		backup.Status.Datacenters[dcKey.Name] = dcStatus
 	}
 
-	if len(errs) > 0 {
-		return result.Error(utilerrors.NewAggregate(errs))
-	}
-
-	if backupsFinished(kBackup) {
-		kBackup.Status.FinishTime = metav1.Now()
+	if backupsFinished(backup) {
+		logger.Info("All Velero backups have finished")
+		backup.Status.FinishTime = metav1.Now()
 		return result.Done()
 	}
 
@@ -267,9 +330,9 @@ func backupsFinished(backup *api.VeleroBackup) bool {
 	return true
 }
 
-func backupFinished(dcStatus api.DatacenterStatus) bool {
+func backupFinished(dcStatus api.DatacenterBackupStatus) bool {
 	switch dcStatus.Phase {
-	case api.Completed, api.Failed, api.Deleted, api.CreateFailed:
+	case api.BackupPhaseCompleted, api.BackupPhaseFailed, api.BackupPhaseDeleted, api.BackupPhaseCreateFailed:
 		return true
 	}
 	return false
@@ -280,6 +343,7 @@ func (r *VeleroBackupReconciler) SetupWithManager(mgr ctrl.Manager, clusters []c
 	cb := ctrl.NewControllerManagedBy(mgr).
 		For(&api.VeleroBackup{}, builder.WithPredicates(predicate.GenerationChangedPredicate{}))
 
+	// TODO Move func to shared package. It is needed for any multi-cluster controller.
 	clusterLabelFilter := func(mapObj client.Object) []reconcile.Request {
 		requests := make([]reconcile.Request, 0)
 

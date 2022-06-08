@@ -5,23 +5,23 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.8.0
   creationTimestamp: null
-  name: velerobackups.velero.k8ssandra.io
+  name: velerorestores.velero.k8ssandra.io
 spec:
   group: velero.k8ssandra.io
   names:
-    kind: VeleroBackup
-    listKind: VeleroBackupList
-    plural: velerobackups
-    singular: velerobackup
+    kind: VeleroRestore
+    listKind: VeleroRestoreList
+    plural: velerorestores
+    singular: velerorestore
   scope: Namespaced
   versions:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: VeleroBackup is the Schema for the cassandrabackups API. A VeleroBackup
+        description: VeleroRestore is the Schema for the velerorestores API. A VeleroRestore
           is a control plane object. It should be created in the same cluster and
-          in the same namespace as the K8ssandraCluster being backed up. This means
-          that a backup operation can span multiple Kubernetes clusters.
+          in the same namespace as the K8ssandraCluster being restored. This means
+          that a restore operation can span multiple Kubernetes clusters.
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -36,15 +36,25 @@ spec:
           metadata:
             type: object
           spec:
-            description: VeleroBackupSpec defines the desired state of VeleroBackup
+            description: VeleroRestoreSpec defines the desired state of VeleroRestore
             properties:
+              backup:
+                description: Backup is the VeleroBackup from which to restore. It
+                  should live in the same namespace as the K8ssandraCluster and the
+                  VeleroRestore.
+                type: string
               datacenters:
+                description: Datacenters specifies the CassandraDatacenters to restore.
+                  If empty all CassandraDatacenters are restored. TODO Add a validation
+                  check to make sure that all DCs listed are declared in K8ssandraCluster.
                 items:
                   type: string
                 type: array
               k8ssandraCluster:
-                description: LocalObjectReference contains enough information to let
-                  you locate the referenced object inside the same namespace.
+                description: K8ssandraCluster is the cluster to restore. It may span
+                  multiple namespaces within the same Kubernetes cluster and/or span
+                  multiple Kubernetes clusters. Currently only in-place restores are
+                  supported.
                 properties:
                   name:
                     description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
@@ -52,28 +62,35 @@ spec:
                     type: string
                 type: object
             required:
+            - backup
             - k8ssandraCluster
             type: object
           status:
-            description: VeleroBackupStatus defines the observed state of VeleroBackup
+            description: VeleroRestoreStatus defines the observed state of VeleroRestore
             properties:
               datacenters:
                 additionalProperties:
                   properties:
                     phase:
+                      description: RestorePhase is the DC-level restore phase.
                       type: string
                   required:
                   - phase
                   type: object
+                description: Datacenters is a map of status per DC.
                 type: object
               finishTime:
+                description: FinishTime is set after all DC restores have successfully
+                  completed and the DCs have be been restarted. In the case of a restore
+                  failure, this property will be set after the DC restores are finished
+                  without any attempt at restarting the CassandraDatacenters.
                 format: date-time
                 type: string
               startTime:
+                description: StartTime is set when the controller first starts reconciling
+                  the VeleroRestore
                 format: date-time
                 type: string
-            required:
-            - datacenters
             type: object
         type: object
     served: true

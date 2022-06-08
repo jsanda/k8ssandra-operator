@@ -27,24 +27,36 @@ import (
 // VeleroBackupSpec defines the desired state of VeleroBackup
 type VeleroBackupSpec struct {
 	// +kubebuilder:validation:Required
+	// K8ssandraCluster is the cluster to backup. It may span multiple namespaces within
+	// the same Kubernetes cluster and/or span multiple Kubernetes clusters.
 	K8ssandraCluster corev1.LocalObjectReference `json:"k8ssandraCluster"`
 
+	// Datacenters specifies the CassandraDatacenters to backup. If empty all
+	// CassandraDatacenters are backed up.
+	// TODO Add a validation check to make sure that all DCs listed are declared in K8ssandraCluster.
 	Datacenters []string `json:"datacenters,omitempty"`
 }
 
 // VeleroBackupStatus defines the observed state of VeleroBackup
 type VeleroBackupStatus struct {
+	// StartTime is set when the controller first starts reconciling the VeleroBackup.
 	StartTime metav1.Time `json:"startTime,omitempty"`
 
+	// FinishTime is set after all DC backups have completed, regardless of whether they
+	// succeeded or failed.
 	FinishTime metav1.Time `json:"finishTime,omitempty"`
 
-	Datacenters map[string]DatacenterStatus `json:"datacenters"`
+	//
+	Datacenters map[string]DatacenterBackupStatus `json:"datacenters"`
 }
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 
-// VeleroBackup is the Schema for the cassandrabackups API
+// VeleroBackup is the Schema for the cassandrabackups API. A VeleroBackup is a control
+// plane object. It should be created in the same cluster and in the same namespace as the
+// K8ssandraCluster being backed up. This means that a backup operation can span multiple
+// Kubernetes clusters.
 type VeleroBackup struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -56,15 +68,15 @@ type VeleroBackup struct {
 type BackupPhase string
 
 const (
-	Starting     BackupPhase = "Starting"
-	InProgress   BackupPhase = "InProgress"
-	CreateFailed BackupPhase = "CreateFailed"
-	Completed    BackupPhase = "Completed"
-	Failed       BackupPhase = "Failed"
-	Deleted      BackupPhase = "Deleted"
+	BackupPhaseStarting     BackupPhase = "Starting"
+	BackupPhaseInProgress   BackupPhase = "InProgress"
+	BackupPhaseCreateFailed BackupPhase = "CreateFailed"
+	BackupPhaseCompleted    BackupPhase = "Completed"
+	BackupPhaseFailed       BackupPhase = "Failed"
+	BackupPhaseDeleted      BackupPhase = "Deleted"
 )
 
-type DatacenterStatus struct {
+type DatacenterBackupStatus struct {
 	Phase BackupPhase `json:"phase"`
 }
 
